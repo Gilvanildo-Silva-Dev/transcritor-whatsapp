@@ -16,6 +16,8 @@ export default defineConfig({
     command: "npm run start -- --hostname 127.0.0.1 --port 3100",
     url: "http://127.0.0.1:3100",
     reuseExistingServer: false,
+    env: { OPENAI_API_KEY: "" },
     timeout: 60000,
   },
 });
+

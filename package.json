@@ -8,11 +8,12 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test": "node --conditions=react-server --import tsx --test tests/*.test.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
     "next": "^16.0.0",
+    "openai": "^7.57.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "server-only": "^0.0.1"
@@ -26,6 +27,7 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.0.0",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.0.0"
   },
   "engines": {

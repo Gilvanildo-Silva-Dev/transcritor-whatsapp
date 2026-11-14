@@ -112,26 +112,19 @@ test("validação pendente não restaura arquivo removido ou substituído", asyn
   await expect(page.getByTitle("primeiro.wav")).toHaveCount(0);
 });
 
-test("simulação não envia o arquivo e remoção cancela processamento", async ({ page }) => {
+test("seleção e prévia do áudio não enviam arquivo antes de transcrever", async ({ page }) => {
   const requests: string[] = [];
   page.on("request", (request) => { if (/^https?:/.test(request.url()) && (request.method() !== "GET" || !request.url().startsWith("http://127.0.0.1:3100"))) requests.push(request.url()); });
   await page.locator("#audio-input").setInputFiles(wav());
   await expect(page.getByRole("button", { name: "Transcrever áudio" })).toBeEnabled();
-  await page.getByRole("button", { name: "Transcrever áudio" }).click();
-  await expect(page.getByRole("button", { name: "Processando prévia…" })).toBeDisabled();
-  await expect(page.getByText("Prévia concluída.", { exact: false })).toBeVisible();
   await expect(page.getByLabel("Texto da transcrição · editável")).toHaveValue("");
-  await page.getByRole("button", { name: "Transcrever áudio" }).click();
-  await page.getByRole("button", { name: "Remover áudio selecionado" }).click();
-  await page.waitForTimeout(2000);
-  await expect(page.getByText("Prévia concluída.", { exact: false })).toHaveCount(0);
   expect(requests).toEqual([]);
 });
-
 test("layout de upload funciona em tela estreita sem rolagem horizontal", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.locator("#audio-input").setInputFiles(wav("mensagem-com-nome-extremamente-longo-exportada-do-whatsapp.wav"));
   await expect(page.getByRole("button", { name: "Remover áudio selecionado" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
 
