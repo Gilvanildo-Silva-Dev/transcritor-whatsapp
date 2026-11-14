@@ -1,4 +1,4 @@
-﻿# Transcritor de Áudios WhatsApp
+# Transcritor de Áudios WhatsApp
 
 Selecione seu áudio e transcreva de verdade **gratuitamente no seu computador**, usando Whisper local. A integração paga com OpenAI é uma opção separada em `/openai`.
 
@@ -11,27 +11,28 @@ Após transcrever no modo local, a área de resultado mostra o **idioma detectad
 O backend retorna `language.code` e `language.confidence` (probabilidade entre 0 e 1, ou `null` quando não informada). Código/score malformado é descartado ou exibido como confiança indisponível, sem inventar 100%. No modo OpenAI, mostra-se o idioma se o serviço informar um único código; não se cria percentual quando a API não o fornece.
 
 O aplicativo não infere sexo, gênero ou identidade da pessoa a partir da voz. A análise desta etapa se limita ao idioma.
-## Usar gratuitamente
+## Aplicativo desktop para Windows
 
-Neste computador o ambiente Python e o modelo já foram instalados. Abra o terminal na pasta do projeto e execute:
+Abra `dist-desktop/TranscritorWhatsApp-Setup-0.1.0.exe` e siga o assistente. Depois, abra **Transcritor de Áudios WhatsApp** pelo atalho. A versão `TranscritorWhatsApp-Portable-0.1.0.exe` dispensa instalação e extrai os recursos ao iniciar.
+
+O pacote Windows x64 inclui Electron, Python portátil e Whisper base. No computador de destino não exige navegador, terminal, Python, Node.js ou chave de API. A transcrição gratuita funciona offline. Selecione ou arraste um áudio, transcreva, edite, copie e salve TXT com a janela nativa. Temas Claro/Escuro/Sistema persistem entre aberturas.
+
+O executável ainda não tem assinatura digital; o Windows poderá mostrar aviso de editor desconhecido. Outro computador ainda precisa de validação nesse equipamento. O pacote é grande porque inclui o motor e o modelo. Fechar o aplicativo cancela os trabalhos e limpa os áudios temporários; uma falha abrupta do sistema pode impedir a limpeza imediata.
+
+## Desenvolvimento e geração do instalador
+
+Para preparar: Windows x64, Node.js 24, Python 3.14 x64 para criar .venv, Microsoft Edge e internet para baixar dependências/modelo/Python. Esses requisitos são somente para gerar o pacote.
 
 ```powershell
-npm.cmd run dev
-```
-
-Acesse **http://localhost:3000**, clique em **Selecionar arquivo**, escolha seu áudio e clique em **Transcrever áudio**. Você pode ouvir a prévia, editar o resultado, copiar e baixar TXT. A página inicial usa somente o motor local: não precisa de chave e não consome créditos de API.
-
-A execução acontece no computador que roda o servidor do aplicativo. Com `localhost`, é o próprio computador. A gravação é temporária e apagada após o processamento, inclusive em erro/cancelamento. O áudio nunca é enviado à OpenAI pelo modo gratuito.
-
-## Instalar em outro computador
-
-Requisitos: Node.js 24 recomendado, Python 3.11 ou superior compatível com as dependências binárias e espaço para o ambiente/modelo.
-
-```sh
 npm ci
-npm run setup:local
-npm run dev
+npm run desktop:prepare
+npm run desktop
+npm run desktop:build
 ```
+
+`npm run dev` e `npm start` também abrem a janela desktop após a preparação. `npm run build` compila o backend interno; `desktop:build` prepara tudo e gera instalador e portable. O backend Next.js permanece interno, vinculado a 127.0.0.1 em porta aleatória com token por sessão. Python e modelo são copiados pelo empacotador. Os comandos `web:dev` e `web:start` servem para desenvolvimento e testes.
+
+`npm run test:desktop` verifica a janela real com fala sintética, motor portátil, isolamento, autenticação interna, edição, clipboard, TXT e persistência de tema. Não utiliza a API paga.
 
 `setup:local` cria `.venv`, instala faster-whisper e PyAV e baixa os pesos públicos do Whisper base (aproximadamente 145 MB, além das dependências). Esse download exige internet somente na configuração. Não exige conta, chave da OpenAI ou token Hugging Face. O binário do modelo é conferido por tamanho e SHA-256; o arquivo final só é criado após download íntegro.
 
@@ -43,7 +44,7 @@ O processamento pode ser mais lento em computadores modestos. Há limite de um �
 
 ## Modo OpenAI opcional
 
-Acesse `http://localhost:3000/openai` somente se quiser usar a API paga. A opção está identificada na interface e nunca é usada como fallback automático do motor gratuito.
+A rota interna `/openai` permanece opcional para desenvolvimento. A opção está identificada na interface e nunca é usada como fallback automático do motor gratuito.
 
 Se `.env.local` ainda não existir, copie `.env.example`; preserve a configuração existente. Defina a chave somente no servidor:
 
@@ -118,4 +119,3 @@ O relatório detalhado está em [RELATORIO_TESTES.md](RELATORIO_TESTES.md). `REG
 - [API de transcrição OpenAI](https://developers.openai.com/api/docs/guides/speech-to-text)
 
 O override restrito de minimatch na cadeia de lint corrige os alertas transitivos anteriores. A auditoria npm retornou zero vulnerabilidades na revisão anterior; verifique novamente ao atualizar dependências.
-

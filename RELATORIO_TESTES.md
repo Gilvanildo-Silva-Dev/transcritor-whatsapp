@@ -1,4 +1,4 @@
-﻿# Relatório de testes — transcrição gratuita local
+# Relatório de testes — transcrição gratuita local
 
 14/11/2026 19:16:49 (Fortaleza, UTC−03:00)
 
@@ -94,3 +94,25 @@ Atualizado em 14/11/2026 19:42:59 (Fortaleza).
 - Testes reais com fala sintética portuguesa e inglesa confirmaram pt/en e probabilidades finitas entre 0 e 1. Áudio silencioso continua rejeitado sem painel de idioma fictício.
 - Sexo/gênero da pessoa não foi inferido pela voz nem recebeu percentual artificial. Nenhuma identificação de pessoa ou classificação desse atributo foi implementada.
 - Mantidas as limitações de ruído, falas curtas, múltiplos idiomas, modelo base e modo pago descritas acima; detecção probabilística pode errar.
+
+## Conversão para desktop — 14/11/2026
+
+Implementado Electron com janela nativa, menu, seletor de arquivos, salvamento TXT pelo sistema e preferências de tema persistidas fora do backend. A interface existente foi preservada. O aplicativo inclui Next.js standalone como serviço interno, Python oficial portátil 3.14.7, faster-whisper, bibliotecas de decodificação e modelo Whisper base. O computador de destino não precisa de Python, Node.js, navegador nem chave para o modo gratuito.
+
+| Verificação executada | Resultado |
+| --- | --- |
+| ESLint e TypeScript | Aprovados |
+| Build Next.js standalone e preparação de recursos | Aprovados; importações Python portátil verificadas |
+| Testes unitários/backend com mocks e bloqueio externo | 92 aprovados; inclui token, origem, Unicode e ciclo de trabalhos desktop |
+| Regressão da interface no Edge | 42 aprovados |
+| Electron em desenvolvimento | Transcrição real de fala sintética com runtime portátil, edição, clipboard, TXT e tema entre reinícios aprovados |
+| Executável Windows empacotado em win-unpacked | Mesmo teste completo aprovado, sem utilizar Python do sistema nem API paga |
+| Privacidade do pacote | Arquivos de aplicação/configuração/ASAR verificados; nenhuma chave local, arquivo .env ou áudio encontrado |
+| Privacidade Git/histórico/bundle | Nenhuma ocorrência; áudios sintéticos removidos após os testes |
+| npm audit | Zero vulnerabilidades após overrides restritos de minimatch para ferramentas de build |
+
+O backend escuta somente 127.0.0.1 com porta aleatória e token por abertura; requisições feitas fora da sessão desktop recebem 403. Renderer com sandbox, isolamento de contexto, Node desativado, navegação externa bloqueada e CSP. A ponte nativa expõe somente preferências de tema. Ao encerrar, os trabalhos são cancelados e os arquivos temporários são limpos. O pacote não inclui `.env.local`; o motor gratuito não recebe a chave da OpenAI. A transcrição não é salva automaticamente: TXT é gravado somente por ação do usuário.
+
+Limitações: pacote Windows x64 e sem assinatura digital, podendo provocar aviso do SmartScreen; ainda não foi instalado em outro computador nem validado em macOS/Linux. O instalador é grande porque inclui o motor/modelo. O Whisper base pode errar e usar bastante CPU; continuam os limites de 25 MB, um áudio por vez e 14 minutos de processamento. A probabilidade do idioma não mede a precisão da transcrição. Não há inferência de sexo/gênero pela voz. Um encerramento abrupto do Windows pode impedir limpeza imediata de temporários. Os testes usam fala sintética, não áudios privados. Nenhuma chamada paga foi necessária nesta execução.
+
+Revisão final de empacotamento: corrigido BOM no package.json e validado build limpo; excluídos dist-desktop, .desktop-build e artefatos de teste do rastreamento/cópia standalone para impedir pacotes recursivos; adicionada auditoria obrigatória antes do empacotamento e verificação de ABI Python 3.14 x64. Auditoria final dos arquivos do pacote sem credenciais, .env, áudio ou diretórios de builds anteriores. O teste completo foi repetido com sucesso no executável desta versão.

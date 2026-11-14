@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -7,15 +7,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TranscriptionError } from "./errors";
 import { readAudioUpload } from "./upload";
+import { registerDesktopJob } from "./desktop-lifecycle";
 import { normalizeLanguage, type DetectedLanguage } from "../../lib/transcription/language";
 
 const json = (body: object, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 export type LocalTranscriptionResult = { text: string; language?: DetectedLanguage };
 type Execute = (python: string, args: string[], signal: AbortSignal) => Promise<string>;
 const executePython: Execute = async (python, args, signal) => {
-  const environment: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1", HF_HUB_OFFLINE: "1", HF_HUB_DISABLE_TELEMETRY: "1", TRANSFORMERS_OFFLINE: "1" };
+  const environment: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1", PYTHONDONTWRITEBYTECODE: "1", HF_HUB_OFFLINE: "1", HF_HUB_DISABLE_TELEMETRY: "1", TRANSFORMERS_OFFLINE: "1" };
   delete environment.OPENAI_API_KEY;
   delete environment.HF_TOKEN;
+  delete environment.TRANSCRITOR_DESKTOP_TOKEN;
   return new Promise((resolve, reject) => {
     let failure: Error | null = null;
     let output = "";
@@ -24,7 +26,7 @@ const executePython: Execute = async (python, args, signal) => {
     child.once("close", () => {
       if (signal.aborted) { reject(signal.reason); return; }
       if (failure) {
-        if ((failure as NodeJS.ErrnoException).code === "ENOENT" || output.includes('"DEPENDENCIES_MISSING"') || output.includes('"MODEL_NOT_READY"')) reject(new TranscriptionError("O motor gratuito precisa ser configurado. Execute npm run setup:local no terminal.", 503));
+        if ((failure as NodeJS.ErrnoException).code === "ENOENT" || output.includes('"DEPENDENCIES_MISSING"') || output.includes('"MODEL_NOT_READY"')) reject(new TranscriptionError(process.env.TRANSCRITOR_DESKTOP_RUNTIME === "1" ? "O motor local está incompleto. Reinstale o aplicativo para restaurá-lo." : "O motor gratuito precisa ser configurado. Execute npm run setup:local no terminal.", 503));
         else if ((failure as { killed?: boolean }).killed) reject(new TranscriptionError("A transcrição local excedeu o tempo máximo. Tente um áudio menor.", 504));
         else reject(new TranscriptionError("Não foi possível ler ou transcrever este áudio localmente. Verifique o arquivo ou tente MP3/WAV.", 422));
       } else resolve(output);
@@ -32,7 +34,7 @@ const executePython: Execute = async (python, args, signal) => {
   });
 };
 
-export function createLocalRunner({ execute = executePython, temporaryRoot = tmpdir(), root = process.cwd(), checkSetup = true }: { execute?: Execute; temporaryRoot?: string; root?: string; checkSetup?: boolean } = {}) {
+export function createLocalRunner({ execute = executePython, temporaryRoot = process.env.TRANSCRITOR_TEMP_DIR || tmpdir(), root = process.cwd(), checkSetup = true }: { execute?: Execute; temporaryRoot?: string; root?: string; checkSetup?: boolean } = {}) {
   return async function run(file: File, signal: AbortSignal): Promise<LocalTranscriptionResult> {
     const python = process.env.LOCAL_PYTHON_PATH?.trim() || join(root, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
     const model = process.env.LOCAL_MODEL_PATH?.trim() || join(root, ".local-models", "whisper-base");
@@ -43,7 +45,7 @@ export function createLocalRunner({ execute = executePython, temporaryRoot = tmp
     const input = join(directory, `input.${extension}`);
     try {
       await writeFile(input, Buffer.from(await file.arrayBuffer()), { flag: "wx" });
-      const output = await execute(python, [join(root, "scripts", "transcribe-local.py"), input, "--model-dir", model], signal);
+      const output = await execute(python, [process.env.LOCAL_TRANSCRIBE_SCRIPT?.trim() || join(root, "scripts", "transcribe-local.py"), input, "--model-dir", model], signal);
       signal.throwIfAborted();
       let response: unknown;
       try { response = JSON.parse(output); } catch { throw new TranscriptionError("O motor local não retornou uma resposta válida.", 500); }
@@ -62,8 +64,9 @@ export function createLocalTranscribeHandler({ run = createLocalRunner() }: { ru
   return async function transcribe(request: Request): Promise<Response> {
     if (busy) return json({ error: "Já há um áudio sendo transcrito neste computador. Aguarde e tente novamente." }, 429);
     busy = true;
+    const desktopJob = registerDesktopJob();
     const deadline = AbortSignal.timeout(840_000);
-    const signal = AbortSignal.any([request.signal, deadline]);
+    const signal = AbortSignal.any([request.signal, deadline, ...(desktopJob ? [desktopJob.signal] : [])]);
     try {
       const { file } = await readAudioUpload(request, signal);
       const raw = await run(file, signal);
@@ -74,14 +77,10 @@ export function createLocalTranscribeHandler({ run = createLocalRunner() }: { ru
       if (!text.trim()) throw new TranscriptionError("Não foi identificada fala neste áudio. Tente uma gravação com voz audível.", 422);
       return json({ text: text.trim(), engine: "local", ...(language ? { language } : {}) });
     } catch (error) {
-      if (request.signal.aborted) return json({ error: "Transcrição local cancelada." }, 499);
+      if (request.signal.aborted || desktopJob?.signal.aborted) return json({ error: "Transcrição local cancelada." }, 499);
       if (deadline.aborted) return json({ error: "A transcrição local excedeu o tempo máximo. Tente um áudio menor." }, 504);
       if (error instanceof TranscriptionError) return json({ error: error.message }, error.status);
       return json({ error: "Não foi possível concluir a transcrição local. Tente novamente." }, 500);
-    } finally { busy = false; }
+    } finally { desktopJob?.finish(); busy = false; }
   };
 }
-
-
-
-

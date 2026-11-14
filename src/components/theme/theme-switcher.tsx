@@ -10,6 +10,7 @@ let storageFailed = false;
 const valid = (value: string | null): value is Theme => value === "light" || value === "dark" || value === "system";
 function snapshot(): Theme {
   if (storageFailed) return fallback;
+  if (window.transcritorDesktop) return window.transcritorDesktop.getTheme();
   try { const saved = localStorage.getItem(storageKey); return valid(saved) ? saved : fallback; }
   catch { return fallback; }
 }
@@ -35,7 +36,11 @@ export function ThemeSwitcher() {
         const next = event.target.value;
         if (!valid(next)) return;
         fallback = next;
-        try { localStorage.setItem(storageKey, next); storageFailed = false; } catch { storageFailed = true; }
+        if (window.transcritorDesktop) {
+          void window.transcritorDesktop.setTheme(next).catch(() => { storageFailed = true; });
+        } else {
+          try { localStorage.setItem(storageKey, next); storageFailed = false; } catch { storageFailed = true; }
+        }
         apply(next);
         window.dispatchEvent(new Event(themeEvent));
       }} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
@@ -46,4 +51,3 @@ export function ThemeSwitcher() {
     </label>
   );
 }
-

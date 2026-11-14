@@ -3,16 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node desktop/launch.cjs",
     "build": "next build",
-    "start": "next start",
+    "start": "node desktop/launch.cjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "node --conditions=react-server --import tsx --import ./tests/network-guard.mjs --test tests/*.test.mjs",
     "test:e2e": "playwright test",
     "check:privacy": "node scripts/check-privacy.mjs --history --build",
     "setup:local": "node scripts/setup-local.mjs",
-    "test:local": "node --conditions=react-server --import tsx --import ./tests/network-guard.mjs tests/local-smoke.mjs"
+    "test:local": "node --conditions=react-server --import tsx --import ./tests/network-guard.mjs tests/local-smoke.mjs",
+    "web:dev": "next dev",
+    "web:start": "next start",
+    "desktop": "node desktop/launch.cjs",
+    "desktop:prepare": "node scripts/prepare-desktop.mjs",
+    "desktop:build": "npm run desktop:prepare && node scripts/package-desktop.mjs",
+    "test:desktop": "node tests/desktop-smoke.mjs"
   },
   "dependencies": {
     "next": "^16.0.0",
@@ -27,6 +33,8 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.0.0",
     "tailwindcss": "^4.0.0",
@@ -40,6 +48,18 @@
   "overrides": {
     "@typescript-eslint/typescript-estree": {
       "minimatch": "^11.0.7"
+    },
+    "app-builder-lib": {
+      "minimatch": "^11.0.7"
+    },
+    "@electron/universal": {
+      "minimatch": "^11.0.7"
     }
+  },
+  "main": "desktop/main.cjs",
+  "description": "Aplicativo desktop para transcrição local gratuita de áudios WhatsApp.",
+  "productName": "Transcritor de Áudios WhatsApp",
+  "author": {
+    "name": "Transcritor de Áudios WhatsApp"
   }
 }

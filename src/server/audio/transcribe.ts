@@ -1,6 +1,7 @@
 ﻿import "server-only";
 
 import OpenAI from "openai";
+import { registerDesktopJob } from "./desktop-lifecycle";
 import { normalizeLanguage } from "../../lib/transcription/language";
 import { MAX_AUDIO_BYTES, validateAudioFile } from "../../lib/audio/validation";
 import { convertAudioToWav } from "./conversion";
@@ -39,8 +40,9 @@ function publicError(error: unknown): { message: string; status: number } {
 
 export function createTranscribeHandler({ getApiKey = () => process.env.OPENAI_API_KEY, clientFactory = createClient, convert = convertAudioToWav }: Dependencies = {}) {
   return async function transcribe(request: Request): Promise<Response> {
+    const desktopJob = registerDesktopJob();
     const deadline = AbortSignal.timeout(270_000);
-    const signal = AbortSignal.any([request.signal, deadline]);
+    const signal = AbortSignal.any([request.signal, deadline, ...(desktopJob ? [desktopJob.signal] : [])]);
     try {
       const { file, validation } = await readAudioUpload(request, signal);
       const apiKey = getApiKey()?.trim();
@@ -82,17 +84,10 @@ export function createTranscribeHandler({ getApiKey = () => process.env.OPENAI_A
       const language = Array.isArray(result.languages) && result.languages.length === 1 ? normalizeLanguage({ code: result.languages[0].code, confidence: null }) : null;
       return json({ text: result.text.trim(), ...(language ? { language } : {}) });
     } catch (error) {
-      if (request.signal.aborted) return json({ error: "Transcrição cancelada." }, 499);
+      if (request.signal.aborted || desktopJob?.signal.aborted) return json({ error: "Transcrição cancelada." }, 499);
       if (deadline.aborted) return json({ error: "A transcrição excedeu o tempo máximo. Tente um áudio menor." }, 504);
       const failure = publicError(error);
       return json({ error: failure.message }, failure.status);
-    }
+    } finally { desktopJob?.finish(); }
   };
 }
-
-
-
-
-
-
-

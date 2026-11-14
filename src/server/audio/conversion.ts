@@ -28,7 +28,7 @@ const executeFfmpeg: Execute = async (executable, args, signal) => {
 };
 
 /** Dependencias substituiveis para verificar conversao e limpeza sem executar binarios nos testes. */
-export function createAudioConverter({ execute = executeFfmpeg, temporaryRoot = tmpdir() }: { execute?: Execute; temporaryRoot?: string } = {}) {
+export function createAudioConverter({ execute = executeFfmpeg, temporaryRoot = process.env.TRANSCRITOR_TEMP_DIR || tmpdir() }: { execute?: Execute; temporaryRoot?: string } = {}) {
   return async function convert(file: File, signal?: AbortSignal): Promise<Buffer> {
     const validation = await validateAudioFile(file);
     if (!validation.ok) throw new TranscriptionError(validation.error, file.size > MAX_AUDIO_BYTES ? 413 : 422);
@@ -65,4 +65,3 @@ export function createAudioConverter({ execute = executeFfmpeg, temporaryRoot = 
 }
 
 export const convertAudioToWav = createAudioConverter();
-
