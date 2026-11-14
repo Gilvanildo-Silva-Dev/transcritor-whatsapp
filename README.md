@@ -1,8 +1,8 @@
-# Transcritor de Áudios WhatsApp
+﻿# Transcritor de Áudios WhatsApp
 
 Aplicativo web para receber áudios do WhatsApp e converter fala em texto com inteligência artificial.
 
-Nesta etapa, somente a estrutura inicial foi criada. Não há upload, armazenamento, integração com IA ou transcrição implementados.
+A interface principal está implementada com seleção e arraste de um áudio (até 25 MB), validação local, informações do arquivo, player, simulação visual de processamento e campo de texto editável com cópia e exportação TXT. Não há envio de arquivos, armazenamento ou integração com IA. A simulação não gera uma transcrição; insira texto manualmente para experimentar cópia e download.
 
 ## Tecnologias
 
@@ -75,3 +75,14 @@ Referências: [instalação do Next.js](https://nextjs.org/docs/app/getting-star
 - A auditoria completa reportou sete alertas moderados na cadeia de dependencias de desenvolvimento do ESLint; `npm audit fix` nao os resolveu. Reavaliar ao atualizar essas ferramentas.
 
 Se a instalacao neste Windows apresentar `UNABLE_TO_VERIFY_LEAF_SIGNATURE` e a autoridade certificadora ja for confiavel no sistema, o Node.js 24 pode usar os certificados do Windows. No PowerShell, execute `$env:NODE_USE_SYSTEM_CA = '1'` antes de `npm.cmd ci`. Nao desative a verificacao TLS.
+
+## Verificacao manual da interface
+
+1. Selecione ou arraste um audio de ate 25 MB; confira nome, tamanho, formato e player.
+2. Experimente um arquivo vazio, acima do limite, de formato invalido ou varios arquivos; confira a mensagem de erro.
+3. Clique em "Transcrever audio"; confira o indicador de simulacao e o aviso final de IA indisponivel, sem texto gerado.
+4. Digite ou cole texto no campo e teste "Copiar texto" e "Baixar TXT". A copia depende da permissao de clipboard do navegador e de HTTPS ou localhost.
+5. Remova ou substitua o audio; confira que o estado e o texto anterior sao limpos e o processamento pendente e cancelado.
+6. Confira o layout em tela estreita e a navegacao por teclado. O suporte de reproducao depende dos codecs do navegador; arquivos nao reproduziveis exibem orientacao.
+
+A interface foi validada com lint, TypeScript, build e resposta HTTP. As interacoes em navegador precisam de verificacao manual neste ambiente, que nao possui ferramenta de automacao de navegador instalada.

@@ -1,1 +1,1 @@
-﻿14/11/2026 17:26 (Fortaleza) — Criada a estrutura inicial do Transcritor de Áudios WhatsApp com Next.js, TypeScript, Tailwind, ESLint e README; lint, tipos, build e HTTP validados, sem implementar transcrição.
+﻿14/11/2026 17:41 (Fortaleza) — Implementada interface responsiva com seleção e arraste de áudio, informações do arquivo, player, processamento simulado, texto editável, cópia e download TXT; lint, tipos, build e HTTP aprovados, sem integração com IA; interações no navegador pendentes de conferência manual.
