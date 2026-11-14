@@ -1,6 +1,7 @@
 ﻿import "server-only";
 
 import OpenAI from "openai";
+import { normalizeLanguage } from "../../lib/transcription/language";
 import { MAX_AUDIO_BYTES, validateAudioFile } from "../../lib/audio/validation";
 import { convertAudioToWav } from "./conversion";
 import { TranscriptionError } from "./errors";
@@ -78,7 +79,8 @@ export function createTranscribeHandler({ getApiKey = () => process.env.OPENAI_A
       }
       if (!result || typeof result.text !== "string") throw new TranscriptionError("A OpenAI retornou uma resposta inválida. Tente novamente.", 502);
       if (!result.text.trim()) throw new TranscriptionError("Não foi possível identificar fala neste áudio. Verifique a gravação e tente novamente.", 422);
-      return json({ text: result.text.trim() });
+      const language = Array.isArray(result.languages) && result.languages.length === 1 ? normalizeLanguage({ code: result.languages[0].code, confidence: null }) : null;
+      return json({ text: result.text.trim(), ...(language ? { language } : {}) });
     } catch (error) {
       if (request.signal.aborted) return json({ error: "Transcrição cancelada." }, 499);
       if (deadline.aborted) return json({ error: "A transcrição excedeu o tempo máximo. Tente um áudio menor." }, 504);
@@ -87,6 +89,7 @@ export function createTranscribeHandler({ getApiKey = () => process.env.OPENAI_A
     }
   };
 }
+
 
 
 

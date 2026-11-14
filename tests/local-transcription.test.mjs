@@ -67,9 +67,24 @@ for (const scenario of ["success", "failed", "invalid-json", "cancelled"]) {
         if (scenario === "cancelled") { controller.abort(); throw controller.signal.reason; }
         return scenario === "invalid-json" ? "invalid" : JSON.stringify({ text: "Resultado do processo local." });
       } });
-      if (scenario === "success") assert.equal(await runner(audio(), controller.signal), "Resultado do processo local.");
+      if (scenario === "success") assert.deepEqual(await runner(audio(), controller.signal), { text: "Resultado do processo local." });
       else await assert.rejects(runner(audio(), controller.signal));
       assert.deepEqual(await readdir(root), []);
     } finally { await rmdir(root); }
   });
 }
+
+
+test("endpoint local preserva idioma e confiança gerados pelo motor", async () => {
+  const handler = createLocalTranscribeHandler({ run: async () => ({ text: "Hello, synthetic test.", language: { code: "en", confidence: 0.94 } }) });
+  const response = await handler(request());
+  assert.deepEqual(await response.json(), { text: "Hello, synthetic test.", engine: "local", language: { code: "en", confidence: 0.94 } });
+});
+test("runner local valida metadados e não transforma score inválido em certeza", async () => {
+  const root = await mkdtemp(join(tmpdir(), "transcritor-language-test-"));
+  try {
+    const run = createLocalRunner({ temporaryRoot: root, checkSetup: false, execute: async () => JSON.stringify({ text: "Teste sintético.", language: { code: "pt", confidence: 97 } }) });
+    assert.deepEqual(await run(audio(), new AbortController().signal), { text: "Teste sintético.", language: { code: "pt", confidence: null } });
+    assert.deepEqual(await readdir(root), []);
+  } finally { await rmdir(root); }
+});

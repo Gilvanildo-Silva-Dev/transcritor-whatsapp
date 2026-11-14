@@ -7,8 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TranscriptionError } from "./errors";
 import { readAudioUpload } from "./upload";
+import { normalizeLanguage, type DetectedLanguage } from "../../lib/transcription/language";
 
 const json = (body: object, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+export type LocalTranscriptionResult = { text: string; language?: DetectedLanguage };
 type Execute = (python: string, args: string[], signal: AbortSignal) => Promise<string>;
 const executePython: Execute = async (python, args, signal) => {
   const environment: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1", HF_HUB_OFFLINE: "1", HF_HUB_DISABLE_TELEMETRY: "1", TRANSFORMERS_OFFLINE: "1" };
@@ -31,7 +33,7 @@ const executePython: Execute = async (python, args, signal) => {
 };
 
 export function createLocalRunner({ execute = executePython, temporaryRoot = tmpdir(), root = process.cwd(), checkSetup = true }: { execute?: Execute; temporaryRoot?: string; root?: string; checkSetup?: boolean } = {}) {
-  return async function run(file: File, signal: AbortSignal): Promise<string> {
+  return async function run(file: File, signal: AbortSignal): Promise<LocalTranscriptionResult> {
     const python = process.env.LOCAL_PYTHON_PATH?.trim() || join(root, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
     const model = process.env.LOCAL_MODEL_PATH?.trim() || join(root, ".local-models", "whisper-base");
     if (checkSetup && ((!process.env.LOCAL_PYTHON_PATH && !existsSync(/* turbopackIgnore: true */ python)) || !existsSync(/* turbopackIgnore: true */ join(model, "model.bin")))) throw new TranscriptionError("Configure a transcrição gratuita executando npm run setup:local no terminal.", 503);
@@ -46,7 +48,8 @@ export function createLocalRunner({ execute = executePython, temporaryRoot = tmp
       let response: unknown;
       try { response = JSON.parse(output); } catch { throw new TranscriptionError("O motor local não retornou uma resposta válida.", 500); }
       if (!response || typeof response !== "object" || !("text" in response) || typeof response.text !== "string") throw new TranscriptionError("O motor local não retornou uma transcrição válida.", 500);
-      return response.text.trim();
+      const language = normalizeLanguage("language" in response ? response.language : null);
+      return { text: response.text.trim(), ...(language ? { language } : {}) };
     } finally {
       try { await unlink(input); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       await rmdir(directory);
@@ -54,7 +57,7 @@ export function createLocalRunner({ execute = executePython, temporaryRoot = tmp
   };
 }
 
-export function createLocalTranscribeHandler({ run = createLocalRunner() }: { run?: (file: File, signal: AbortSignal) => Promise<string> } = {}) {
+export function createLocalTranscribeHandler({ run = createLocalRunner() }: { run?: (file: File, signal: AbortSignal) => Promise<LocalTranscriptionResult | string> } = {}) {
   let busy = false;
   return async function transcribe(request: Request): Promise<Response> {
     if (busy) return json({ error: "Já há um áudio sendo transcrito neste computador. Aguarde e tente novamente." }, 429);
@@ -63,10 +66,13 @@ export function createLocalTranscribeHandler({ run = createLocalRunner() }: { ru
     const signal = AbortSignal.any([request.signal, deadline]);
     try {
       const { file } = await readAudioUpload(request, signal);
-      const text = await run(file, signal);
+      const raw = await run(file, signal);
+      const result = typeof raw === "string" ? { text: raw } : raw;
+      const text = result.text;
+      const language = normalizeLanguage(result.language);
       signal.throwIfAborted();
       if (!text.trim()) throw new TranscriptionError("Não foi identificada fala neste áudio. Tente uma gravação com voz audível.", 422);
-      return json({ text: text.trim(), engine: "local" });
+      return json({ text: text.trim(), engine: "local", ...(language ? { language } : {}) });
     } catch (error) {
       if (request.signal.aborted) return json({ error: "Transcrição local cancelada." }, 499);
       if (deadline.aborted) return json({ error: "A transcrição local excedeu o tempo máximo. Tente um áudio menor." }, 504);
@@ -75,6 +81,7 @@ export function createLocalTranscribeHandler({ run = createLocalRunner() }: { ru
     } finally { busy = false; }
   };
 }
+
 
 
 

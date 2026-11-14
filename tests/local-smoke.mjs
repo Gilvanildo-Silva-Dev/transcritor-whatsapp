@@ -10,6 +10,7 @@ const root = await mkdtemp(join(tmpdir(), "whisper-local-smoke-"));
 const wav = join(root, "synthetic.wav");
 const opus = join(root, "synthetic.opus");
 const silence = join(root, "silence.opus");
+const english = join(root, "english.wav");
 const python = join(process.cwd(), ".venv", "Scripts", "python.exe");
 try {
   execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `
@@ -22,6 +23,16 @@ try {
       $voice.Speak('Olá. Este é um teste de transcrição gratuita no computador. O áudio é processado localmente, sem usar uma API paga. Podemos selecionar o arquivo, copiar o texto e baixar a transcrição.')
     } finally { $voice.Dispose() }
   `], { env: { ...process.env, LOCAL_SMOKE_OUTPUT: wav }, windowsHide: true, timeout: 60_000, stdio: "pipe" });
+  execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `
+    Add-Type -AssemblyName System.Speech
+    $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer
+    try {
+      $voice.SelectVoice('Microsoft Zira Desktop')
+      $voice.Rate = -1
+      $voice.SetOutputToWaveFile($env:LOCAL_SMOKE_OUTPUT)
+      $voice.Speak('Hello. This is a test of automatic language detection. The audio is processed locally on this computer without any paid API. We can select the file and copy the resulting text.')
+    } finally { $voice.Dispose() }
+  `], { env: { ...process.env, LOCAL_SMOKE_OUTPUT: english }, windowsHide: true, timeout: 60_000, stdio: "pipe" });
   execFileSync(python, ["-c", `
 import sys
 import av
@@ -67,9 +78,20 @@ silent_output.close()
     const body = await response.json();
     assert.equal(response.status, 200, `Falha na transcricao local ${extension}: ${body.error || "erro"}`);
     assert.equal(body.engine, "local");
+    assert.equal(body.language?.code, "pt");
+    assert.ok(Number.isFinite(body.language?.confidence) && body.language.confidence >= 0 && body.language.confidence <= 1);
     assert.match(body.text, /transcri|gratuit|computador/i);
     console.log(`${extension.toUpperCase()}: inferencia real local aprovada (${body.text.length} caracteres), sem API.`);
   }
+  const englishForm = new FormData();
+  englishForm.append("file", new File([await readFile(english)], "english.wav"));
+  const englishResponse = await handler(new Request("http://localhost/api/transcribe/local", { method: "POST", body: englishForm }));
+  const englishResult = await englishResponse.json();
+  assert.equal(englishResponse.status, 200);
+  assert.equal(englishResult.language?.code, "en");
+  assert.ok(Number.isFinite(englishResult.language?.confidence) && englishResult.language.confidence >= 0 && englishResult.language.confidence <= 1);
+  assert.match(englishResult.text, /language|computer|audio/i);
+  console.log("Idiomas: portugues e ingles detectados automaticamente com probabilidades reais do modelo.");
   const silentForm = new FormData();
   silentForm.append("file", new File([await readFile(silence)], "silence.opus"));
   const silentResponse = await handler(new Request("http://localhost/api/transcribe/local", { method: "POST", body: silentForm }));
@@ -77,7 +99,8 @@ silent_output.close()
   assert.match((await silentResponse.json()).error, /fala/);
   console.log("OPUS silencioso: ausencia de fala detectada pelo modelo/VAD real, sem texto inventado.");
 } finally {
-  for (const path of [wav, opus, silence]) { try { await unlink(path); } catch (error) { if (error.code !== "ENOENT") throw error; } }
+  for (const path of [wav, opus, silence, english]) { try { await unlink(path); } catch (error) { if (error.code !== "ENOENT") throw error; } }
   await rmdir(root);
 }
+
 

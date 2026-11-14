@@ -32,9 +32,9 @@ def main():
         emit({"error": "MODEL_NOT_READY"})
         return 3
     try:
-        segments, _ = model.transcribe(args.audio, language="pt", beam_size=5, vad_filter=True, condition_on_previous_text=False)
+        segments, info = model.transcribe(args.audio, language=None, beam_size=5, vad_filter=True, condition_on_previous_text=False)
         text = " ".join(segment.text.strip() for segment in segments if segment.text.strip()).strip()
-        emit({"text": text, "engine": "local"})
+        emit({"text": text, "engine": "local", "language": {"code": info.language, "confidence": float(info.language_probability)}})
         return 0
     except Exception:
         # Nao imprime nomes de arquivos, conteudo ou mensagens internas.
@@ -43,3 +43,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

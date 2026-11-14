@@ -212,3 +212,9 @@ test("falha de leitura do corpo de upload não vaza detalhes internos", async ()
   assert.equal(response.status, 400); const message = await response.text(); assert.match(message, /envio foi interrompido/); assert.doesNotMatch(message, /private upload bytes/); assert.equal(calls.length, 0);
 });
 
+
+test("API pode informar idioma sem oferecer percentual de confiança", async () => {
+  const { handler } = setup([{ status: 200, body: { text: "Synthetic English response.", languages: [{ code: "en" }] } }]);
+  const response = await handler(request());
+  assert.deepEqual((await response.json()).language, { code: "en", confidence: null });
+});

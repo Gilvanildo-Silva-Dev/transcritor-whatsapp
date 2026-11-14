@@ -2,6 +2,15 @@
 
 Selecione seu áudio e transcreva de verdade **gratuitamente no seu computador**, usando Whisper local. A integração paga com OpenAI é uma opção separada em `/openai`.
 
+## Temas e identificação de idioma
+
+No cabeçalho, o seletor **Tema** oferece **Claro**, **Escuro** e **Sistema**. A opção Sistema acompanha a preferência do dispositivo. A escolha é salva no navegador e aplicada antes da primeira pintura; se o armazenamento estiver bloqueado, a troca continua funcionando na página atual. Somente a preferência de tema é persistida no localStorage, nunca áudio ou transcrição.
+
+Após transcrever no modo local, a área de resultado mostra o **idioma detectado** e a **confiança estimada do idioma**, calculada a partir de `language_probability` retornada pelo Whisper. A detecção é automática, preservando o idioma original em vez de forçar português. O percentual não é garantia de acerto nem uma medida da precisão do texto.
+
+O backend retorna `language.code` e `language.confidence` (probabilidade entre 0 e 1, ou `null` quando não informada). Código/score malformado é descartado ou exibido como confiança indisponível, sem inventar 100%. No modo OpenAI, mostra-se o idioma se o serviço informar um único código; não se cria percentual quando a API não o fornece.
+
+O aplicativo não infere sexo, gênero ou identidade da pessoa a partir da voz. A análise desta etapa se limita ao idioma.
 ## Usar gratuitamente
 
 Neste computador o ambiente Python e o modelo já foram instalados. Abra o terminal na pasta do projeto e execute:
@@ -26,7 +35,7 @@ npm run dev
 
 `setup:local` cria `.venv`, instala faster-whisper e PyAV e baixa os pesos públicos do Whisper base (aproximadamente 145 MB, além das dependências). Esse download exige internet somente na configuração. Não exige conta, chave da OpenAI ou token Hugging Face. O binário do modelo é conferido por tamanho e SHA-256; o arquivo final só é criado após download íntegro.
 
-A inferência usa CPU, int8, português e filtro de atividade de voz (VAD). `HF_HUB_OFFLINE` e `local_files_only` impedem downloads pelo motor durante a transcrição. Os pesos ficam em `.local-models/whisper-base`; ambiente e modelos estão fora do Git e não são empacotados automaticamente pelo Next.js.
+A inferência usa CPU, int8, detecção automática de idioma e filtro de atividade de voz (VAD). `HF_HUB_OFFLINE` e `local_files_only` impedem downloads pelo motor durante a transcrição. Os pesos ficam em `.local-models/whisper-base`; ambiente e modelos estão fora do Git e não são empacotados automaticamente pelo Next.js.
 
 A versão PyAV 18.1.0 está fixada porque PyAV 19 removeu um parâmetro ainda utilizado por faster-whisper 1.2.1. As bibliotecas de decodificação vêm com PyAV: o modo local não exige instalar o executável FFmpeg separadamente para OGG/OPUS.
 
@@ -96,9 +105,9 @@ npm run check:privacy
 npm audit
 ```
 
-A suíte de 82 testes automatizados usa mocks e bloqueia rede externa. Os 34 testes no Edge cobrem seleção, upload, ambos os modos, edição/cópia/TXT, erros e cancelamento. O servidor E2E recebe chave vazia para impedir cobrança acidental.
+A suíte de 89 testes automatizados usa mocks e bloqueia rede externa. Os 42 testes no Edge cobrem seleção, upload, ambos os modos, edição/cópia/TXT, erros e cancelamento. O servidor E2E recebe chave vazia para impedir cobrança acidental.
 
-`test:local` é uma verificação adicional de inferência real gratuita: gera fala sintética portuguesa com a voz Maria do Windows, codifica WAV/OPUS, usa o modelo instalado e testa um OPUS silencioso com VAD. Não usa gravações pessoais nem API. Limpa todos os áudios gerados ao terminar. Esse teste requer Windows com essa voz e `setup:local` já concluído; o aplicativo não depende de SAPI para transcrever arquivos do usuário.
+`test:local` é uma verificação adicional de inferência real gratuita: gera fala sintética portuguesa e inglesa com as vozes Maria e Zira do Windows, codifica WAV/OPUS, usa o modelo instalado e testa um OPUS silencioso com VAD, além dos códigos de idioma e das probabilidades reais do modelo. Não usa gravações pessoais nem API. Limpa todos os áudios gerados ao terminar. Esse teste requer Windows com essas vozes e `setup:local` já concluído; o aplicativo não depende de SAPI para transcrever arquivos do usuário.
 
 O relatório detalhado está em [RELATORIO_TESTES.md](RELATORIO_TESTES.md). `REGISTRO.md` preserva uma linha por execução, com data/hora de Fortaleza e etapas.
 
@@ -109,3 +118,4 @@ O relatório detalhado está em [RELATORIO_TESTES.md](RELATORIO_TESTES.md). `REG
 - [API de transcrição OpenAI](https://developers.openai.com/api/docs/guides/speech-to-text)
 
 O override restrito de minimatch na cadeia de lint corrige os alertas transitivos anteriores. A auditoria npm retornou zero vulnerabilidades na revisão anterior; verifique novamente ao atualizar dependências.
+
