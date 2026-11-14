@@ -1,4 +1,6 @@
-﻿export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+﻿import { inspectWav } from "./wav";
+
+export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 export const AUDIO_EXTENSIONS = ["ogg", "opus", "mp3", "m4a", "wav", "webm"] as const;
 export const AUDIO_ACCEPT = AUDIO_EXTENSIONS.map((extension) => `.${extension}`).join(",");
 export type AudioExtension = (typeof AUDIO_EXTENSIONS)[number];
@@ -14,17 +16,51 @@ export type AudioValidation = { ok: true; details: AudioDetails } | { ok: false;
 type AudioFile = Pick<File, "name" | "size" | "slice">;
 const HEADER_BYTES = 64 * 1024;
 const invalid = (error: string): AudioValidation => ({ ok: false, error });
-const ascii = (bytes: Uint8Array, start: number, length: number) => String.fromCharCode(...bytes.subarray(start, start + length));
+const decoder = new TextDecoder("latin1");
+const ascii = (bytes: Uint8Array, start: number, length: number) => decoder.decode(bytes.subarray(start, start + Math.max(0, length)));
 
-function mp3Frame(bytes: Uint8Array, offset: number): boolean {
+function mp3Frame(bytes: Uint8Array, offset: number, remaining: number): boolean {
   if (offset + 4 > bytes.length || bytes[offset] !== 0xff || (bytes[offset + 1] & 0xe0) !== 0xe0) return false;
   const version = (bytes[offset + 1] >> 3) & 3;
   const layer = (bytes[offset + 1] >> 1) & 3;
   const bitrateIndex = bytes[offset + 2] >> 4;
   const sampleIndex = (bytes[offset + 2] >> 2) & 3;
-  return version !== 1 && layer === 1 && bitrateIndex > 0 && bitrateIndex < 15 && sampleIndex < 3;
+  if (version === 1 || layer !== 1 || bitrateIndex === 0 || bitrateIndex === 15 || sampleIndex === 3) return false;
+  const bitrates = version === 3 ? [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320] : [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
+  const rate = [44100, 48000, 32000][sampleIndex] / (version === 3 ? 1 : version === 2 ? 2 : 4);
+  const frameLength = Math.floor((version === 3 ? 144 : 72) * bitrates[bitrateIndex] * 1000 / rate) + ((bytes[offset + 2] >> 1) & 1);
+  return frameLength <= remaining;
 }
 
+function ebmlVint(bytes: Uint8Array, offset: number, keepMarker = false): { value: number; length: number } | null {
+  const first = bytes[offset];
+  if (!first) return null;
+  let length = 1;
+  let marker = 0x80;
+  while (!(first & marker) && length <= 8) { marker >>= 1; length++; }
+  if (length > 8 || offset + length > bytes.length) return null;
+  let value = keepMarker ? first : first & (marker - 1);
+  for (let index = 1; index < length; index++) value = value * 256 + bytes[offset + index];
+  return Number.isSafeInteger(value) ? { value, length } : null;
+}
+function hasWebmDocType(bytes: Uint8Array): boolean {
+  const root = ebmlVint(bytes, 4);
+  if (!root) return false;
+  const end = 4 + root.length + root.value;
+  if (end > bytes.length) return false;
+  let found = false;
+  for (let offset = 4 + root.length; offset < end;) {
+    const id = ebmlVint(bytes, offset, true);
+    if (!id || id.length > 4) return false;
+    const size = ebmlVint(bytes, offset + id.length);
+    if (!size) return false;
+    const start = offset + id.length + size.length;
+    if (start + size.value > end) return false;
+    if (id.value === 0x4282) found = ascii(bytes, start, size.value) === "webm";
+    offset = start + size.value;
+  }
+  return found;
+}
 /** Inspecao local limitada aos cabecalhos; nao substitui uma decodificacao completa. */
 export async function validateAudioFile(file: AudioFile): Promise<AudioValidation> {
   const extension = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : "";
@@ -43,39 +79,31 @@ export async function validateAudioFile(file: AudioFile): Promise<AudioValidatio
     const bodyStart = 27 + segmentCount;
     let bodyLength = 0;
     for (let index = 27; index < bodyStart && index < bytes.length; index++) bodyLength += bytes[index];
-    const validPage = segmentCount > 0 && bodyStart + bodyLength <= file.size && bodyStart < bytes.length;
-    if (validPage && bodyLength >= 19 && ascii(bytes, bodyStart, 8) === "OpusHead") {
+    let packetLength = 0;
+    let packetComplete = false;
+    for (let index = 27; index < bodyStart && index < bytes.length; index++) {
+      packetLength += bytes[index];
+      if (bytes[index] < 255) { packetComplete = true; break; }
+    }
+    const validPage = segmentCount > 0 && bodyStart <= bytes.length && bodyStart + bodyLength <= file.size && packetComplete && bodyStart + packetLength <= bytes.length && (bytes[5] & 2) !== 0;
+    if (validPage && packetLength >= 19 && ascii(bytes, bodyStart, 8) === "OpusHead" && bytes[bodyStart + 8] <= 15 && bytes[bodyStart + 9] > 0) {
       detected = { container: "ogg", mime: 'audio/ogg; codecs="opus"', label: "OGG / Opus", verification: "audio-header" };
-    } else if (validPage && bodyLength >= 30 && bytes[bodyStart] === 1 && ascii(bytes, bodyStart + 1, 6) === "vorbis") {
+    } else if (validPage && packetLength >= 30 && bytes[bodyStart] === 1 && ascii(bytes, bodyStart + 1, 6) === "vorbis" && bytes[bodyStart + 11] > 0 && (bytes[bodyStart + 29] & 1) !== 0) {
       detected = { container: "ogg", mime: 'audio/ogg; codecs="vorbis"', label: "OGG / Vorbis", verification: "audio-header" };
     }
   } else if (ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 4) === "WAVE") {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    let hasFormat = false;
-    let hasData = false;
-    const riffEnd = view.getUint32(4, true) + 8;
-    for (let offset = 12; offset + 8 <= bytes.length;) {
-      const chunk = ascii(bytes, offset, 4);
-      const length = view.getUint32(offset + 4, true);
-      if (offset + 8 + length > file.size) break;
-      if (chunk === "fmt " && length >= 16 && offset + 24 <= bytes.length) {
-        hasFormat = view.getUint16(offset + 10, true) > 0 && view.getUint32(offset + 12, true) > 0;
-      }
-      if (chunk === "data" && length > 0) hasData = true;
-      if (hasFormat && hasData) break;
-      offset += 8 + length + (length % 2);
-    }
-    if (riffEnd <= file.size && hasFormat && hasData) detected = { container: "wav", mime: "audio/wav", label: "WAV", verification: "audio-header" };
+    if (inspectWav(bytes, file.size)) detected = { container: "wav", mime: "audio/wav", label: "WAV", verification: "audio-header" };
   } else if (ascii(bytes, 4, 4) === "ftyp") {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const boxSize = view.getUint32(0);
-    const brands = ascii(bytes, 8, Math.min(boxSize, bytes.length) - 8);
-    if (boxSize >= 16 && boxSize <= file.size && /M4A |M4B |isom|iso2|mp41|mp42|qt  /.test(brands)) {
+    const brands = [ascii(bytes, 8, 4)];
+    for (let offset = 16; offset + 4 <= Math.min(boxSize, bytes.length); offset += 4) brands.push(ascii(bytes, offset, 4));
+    if (boxSize >= 16 && boxSize % 4 === 0 && boxSize <= file.size && brands.some((brand) => ["M4A ", "M4B ", "isom", "iso2", "mp41", "mp42", "qt  "].includes(brand))) {
       detected = { container: "mp4", mime: "audio/mp4", label: "M4A / MPEG-4", verification: "container-header", note: "Contêiner MPEG-4 reconhecido. A faixa de áudio e sua integridade ainda precisam de decodificação." };
     }
   } else if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
     const header = ascii(bytes, 0, bytes.length);
-    if (header.includes("webm")) {
+    if (hasWebmDocType(bytes)) {
       const codec = header.includes("A_OPUS") ? "Opus" : header.includes("A_VORBIS") ? "Vorbis" : null;
       detected = { container: "webm", mime: codec ? `audio/webm; codecs="${codec.toLowerCase()}"` : "audio/webm", label: codec ? `WEBM / ${codec}` : "WEBM", verification: "container-header", note: "Contêiner WEBM reconhecido. A presença e a integridade da faixa de áudio precisam de decodificação." };
     }
@@ -93,7 +121,7 @@ export async function validateAudioFile(file: AudioFile): Promise<AudioValidatio
         try { frame = new Uint8Array(await file.slice(offset, offset + 4).arrayBuffer()); offset = 0; }
         catch { return invalid("Não foi possível ler o cabeçalho MP3."); }
       }
-      if (mp3Frame(frame, offset)) detected = { container: "mp3", mime: "audio/mpeg", label: "MP3", verification: "audio-header" };
+      if (mp3Frame(frame, offset, file.size - frameOffset)) detected = { container: "mp3", mime: "audio/mpeg", label: "MP3", verification: "audio-header" };
     }
   }
 
@@ -104,3 +132,5 @@ export async function validateAudioFile(file: AudioFile): Promise<AudioValidatio
   }
   return { ok: true, details: { extension: ext, ...detected } };
 }
+
+

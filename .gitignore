@@ -12,3 +12,27 @@ next-env.d.ts
 playwright-report/
 test-results/
 .env.local
+# Arquivos pessoais e resultados de transcrição ficam fora do repositório.
+*.ogg
+*.opus
+*.mp3
+*.m4a
+*.wav
+*.webm
+*.aac
+*.flac
+*.mp4
+*.mpeg
+*.mpga
+*.txt
+*.pem
+*.key
+*.p12
+*.pfx
+uploads/
+recordings/
+transcriptions/
+transcricoes/
+private/
+tmp/
+temp/

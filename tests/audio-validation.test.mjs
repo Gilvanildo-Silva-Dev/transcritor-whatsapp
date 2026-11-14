@@ -72,3 +72,16 @@ test("leitura é limitada ao cabeçalho e ignora ID3 grande com leitura pontual"
   const result = await validateAudioFile({ name: file.name, size: file.size, slice(start, end) { reads.push(end - start); return file.slice(start, end); } });
   assert.equal(result.ok, true); assert.deepEqual(reads, [65536, 4]);
 });
+
+for (const [name, create] of [
+  ["frame MP3 truncado", () => new File([mp3Header().slice(0, 32)], "audio.mp3")],
+  ["Ogg com tabela de segmentos truncada", () => { const bytes = oggHeader(); bytes[26] = 200; return new File([bytes], "audio.opus"); }],
+  ["Ogg sem pacote inicial completo", () => { const bytes = oggHeader(); bytes[27] = 255; return new File([bytes], "audio.opus"); }],
+  ["Opus sem canais", () => { const bytes = oggHeader(); bytes[37] = 0; return new File([bytes], "audio.opus"); }],
+  ["WAV com RIFF menor que os chunks", () => { const bytes = wavFixture(); new DataView(bytes.buffer).setUint32(4, 20, true); return new File([bytes], "audio.wav"); }],
+  ["WAV com frames parciais", () => { const bytes = wavFixture(); new DataView(bytes.buffer).setUint32(40, bytes.length - 45, true); return new File([bytes], "audio.wav"); }],
+  ["M4A com brand deslocado", () => { const bytes = m4aHeader(); bytes.fill(0, 8); bytes.set(new TextEncoder().encode(" M4A"), 8); return new File([bytes], "audio.m4a"); }],
+  ["WebM com texto webm fora do cabeçalho EBML", () => new File([new Uint8Array([0x1a,0x45,0xdf,0xa3,0x80]), "texto webm A_OPUS"], "audio.webm")],
+]) {
+  test(`rejeita ${name}`, async () => { assert.equal((await validateAudioFile(create())).ok, false); });
+}

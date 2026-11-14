@@ -8,8 +8,9 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "node --conditions=react-server --import tsx --test tests/*.test.mjs",
-    "test:e2e": "playwright test"
+    "test": "node --conditions=react-server --import tsx --import ./tests/network-guard.mjs --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "check:privacy": "node scripts/check-privacy.mjs --history --build"
   },
   "dependencies": {
     "next": "^16.0.0",
@@ -33,5 +34,10 @@
   "engines": {
     "node": ">=20.9.0"
   },
-  "type": "module"
+  "type": "module",
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.7"
+    }
+  }
 }

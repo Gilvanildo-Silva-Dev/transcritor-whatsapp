@@ -131,3 +131,123 @@ test("endpoint real valida o arquivo e informa configuração ausente sem revela
   expect((await request.get("/api/transcribe")).status()).toBe(405);
 });
 
+
+test("copia exatamente o texto editado, com acentos, quebras de linha e emoji", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.route("**/api/transcribe", (route) => route.fulfill({ json: { text: result } }));
+  await page.locator("#audio-input").setInputFiles(audio());
+  await page.getByRole("button", { name: "Transcrever áudio" }).click();
+  await expect(page.getByLabel("Texto da transcrição · editável")).toHaveValue(result);
+  const edited = "Revisão manual: ação e reunião.\nSegunda linha 😊";
+  await page.getByLabel("Texto da transcrição · editável").fill(edited);
+  await page.getByRole("button", { name: "Copiar texto" }).click();
+  await expect(page.getByText("Texto copiado para a área de transferência.", { exact: true })).toBeVisible();
+  // O clipboard do Windows converte LF para CRLF; o conteudo deve permanecer igual.
+  expect((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n")).toBe(edited);
+  const downloadEvent = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Baixar TXT" }).click();
+  const download = await downloadEvent; const stream = await download.createReadStream(); const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  const bytes = Buffer.concat(chunks);
+  expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+  expect(bytes.subarray(3).toString("utf8")).toBe(edited);
+});
+
+for (const clipboard of ["denied", "missing"]) {
+  test(`clipboard ${clipboard}: seleciona o texto e orienta cópia manual`, async ({ page }) => {
+    await page.addInitScript((mode) => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: mode === "missing" ? undefined : { writeText: async () => { throw new DOMException("Bloqueado", "NotAllowedError"); } } });
+    }, clipboard);
+    await page.reload();
+    const textarea = page.getByLabel("Texto da transcrição · editável");
+    const text = "Texto sintético para cópia manual."; await textarea.fill(text);
+    await page.getByRole("button", { name: "Copiar texto" }).click();
+    await expect(page.getByText("A cópia automática foi bloqueada.", { exact: false })).toBeVisible();
+    await expect(textarea).toBeFocused();
+    expect(await textarea.evaluate((node: HTMLTextAreaElement) => [node.selectionStart, node.selectionEnd])).toEqual([0, text.length]);
+  });
+}
+
+for (const action of ["edit", "replace"]) {
+  test(`cópia pendente não mostra confirmação antiga após ${action}`, async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: () => new Promise<void>((resolve) => { Object.assign(window, { releaseCopy: resolve }); }) } });
+    });
+    await page.reload();
+    await page.locator("#audio-input").setInputFiles(audio());
+    await page.getByLabel("Texto da transcrição · editável").fill("Texto anterior sintético.");
+    await page.getByRole("button", { name: "Copiar texto" }).click();
+    if (action === "edit") await page.getByLabel("Texto da transcrição · editável").fill("Novo texto sintético.");
+    else await page.locator("#audio-input").setInputFiles(audio("novo.wav"));
+    await page.evaluate(() => (window as unknown as { releaseCopy: () => void }).releaseCopy());
+    await expect(page.getByText("Texto copiado para a área de transferência.", { exact: true })).toHaveCount(0);
+  });
+}
+
+test("texto vazio desabilita cópia e download sem perder edição manual", async ({ page }) => {
+  const textarea = page.getByLabel("Texto da transcrição · editável");
+  await textarea.fill("   \n ");
+  await expect(page.getByRole("button", { name: "Copiar texto" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Baixar TXT" })).toBeDisabled();
+  await textarea.fill("Texto local sintético.");
+  await expect(page.getByRole("button", { name: "Copiar texto" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Baixar TXT" })).toBeEnabled();
+});
+
+test("falha ao criar download é tratada e mantém o texto", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = URL.createObjectURL;
+    URL.createObjectURL = function (value) {
+      if (value instanceof Blob && value.type.startsWith("text/plain")) throw new Error("download indisponivel");
+      return original.call(this, value);
+    };
+  });
+  await page.reload();
+  await page.getByLabel("Texto da transcrição · editável").fill("Texto sintético preservado.");
+  await page.getByRole("button", { name: "Baixar TXT" }).click();
+  await expect(page.getByText("Não foi possível baixar o TXT.", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("Texto da transcrição · editável")).toHaveValue("Texto sintético preservado.");
+});
+
+test("falha ao abrir conexão não deixa indicador de carregamento preso", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method: string, url: string | URL, async: boolean = true, username?: string | null, password?: string | null) {
+      if (String(url).includes("/api/transcribe")) throw new Error("conexao indisponivel");
+      return original.call(this, method, url, async, username, password);
+    };
+  });
+  await page.reload(); await page.locator("#audio-input").setInputFiles(audio());
+  await page.getByRole("button", { name: "Transcrever áudio" }).click();
+  await expect(page.locator("#transcription-error")).toContainText("iniciar a conexão");
+  await expect(page.getByRole("button", { name: "Transcrever áudio" })).toBeEnabled();
+  await expect(page.getByLabel("Texto da transcrição · editável")).toBeEnabled();
+});
+
+test("timeout de rede libera interface para nova tentativa", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function (body) { this.timeout = 50; return original.call(this, body); };
+  });
+  await page.reload(); await page.route("**/api/transcribe", (route) => route.continue({ url: transportUrl }));
+  await page.locator("#audio-input").setInputFiles(audio()); await page.getByRole("button", { name: "Transcrever áudio" }).click();
+  await expect(page.locator("#transcription-error")).toContainText("tempo de espera");
+  await expect(page.getByRole("button", { name: "Transcrever áudio" })).toBeEnabled();
+});
+
+test("endpoint real rejeita WAV silencioso antes de depender da chave", async ({ request }) => {
+  const silent = wavFixture(); silent.fill(0, 44);
+  const response = await request.post("/api/transcribe", { multipart: { file: { name: "silencio.wav", mimeType: "audio/wav", buffer: Buffer.from(silent) } } });
+  expect(response.status()).toBe(422); expect((await response.json()).error).toContain("silêncio");
+});
+
+test("API com texto semelhante a HTML continua sendo texto, sem execução", async ({ page }) => {
+  const text = '<script>window.privateMarker=true</script> Texto sintético.';
+  await page.route("**/api/transcribe", (route) => route.fulfill({ json: { text } }));
+  await page.locator("#audio-input").setInputFiles(audio()); await page.getByRole("button", { name: "Transcrever áudio" }).click();
+  await expect(page.getByLabel("Texto da transcrição · editável")).toHaveValue(text);
+  expect(await page.evaluate(() => "privateMarker" in window)).toBe(false);
+});
+
+
+

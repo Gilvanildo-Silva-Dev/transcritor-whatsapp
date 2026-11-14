@@ -46,13 +46,15 @@ test("WAV suportado não executa FFmpeg", async () => {
   assert.equal((await handler(request())).status, 200);
 });
 
-test("OPUS é convertido para WAV antes do envio", async () => {
+test("OPUS do WhatsApp é enviado como OGG sem FFmpeg e sem alterar os bytes", async () => {
   let conversions = 0;
-  const { handler, calls } = setup(undefined, async (file) => { assert.equal(file.name, "PTT-WhatsApp.opus"); conversions++; return Buffer.from(wavFixture()); });
+  const { handler, calls } = setup(undefined, async () => { conversions++; throw new Error("conversão desnecessária"); });
   assert.equal((await handler(request(opus()))).status, 200);
-  assert.equal(conversions, 1); assert.equal(calls[0].form.get("file").name, "audio.wav");
+  assert.equal(conversions, 0);
+  const uploaded = calls[0].form.get("file");
+  assert.equal(uploaded.name, "audio.ogg"); assert.equal(uploaded.type, "audio/ogg");
+  assert.deepEqual(new Uint8Array(await uploaded.arrayBuffer()), oggHeader());
 });
-
 test("formato rejeitado pela OpenAI recebe uma única tentativa após conversão", async () => {
   let conversions = 0;
   const { handler, calls } = setup([
@@ -63,9 +65,9 @@ test("formato rejeitado pela OpenAI recebe uma única tentativa após conversão
   assert.equal(response.status, 200); assert.equal(calls.length, 2); assert.equal(conversions, 1);
 });
 
-test("OPUS já convertido não entra em ciclo de tentativas", async () => {
+test("fallback de OPUS para WAV não entra em ciclo de tentativas", async () => {
   const { handler, calls } = setup([{ status: 400, body: { error: { message: "unsupported audio format", code: "unsupported_audio_format" } } }], async () => Buffer.from(wavFixture()));
-  assert.equal((await handler(request(opus()))).status, 422); assert.equal(calls.length, 1);
+  assert.equal((await handler(request(opus()))).status, 422); assert.equal(calls.length, 2);
 });
 
 test("recebimento exige multipart válido e exatamente um arquivo no campo file", async () => {
@@ -170,3 +172,43 @@ test("cancelamento interrompe a leitura de um multipart que não terminou", asyn
   setTimeout(() => controller.abort(), 15);
   assert.equal((await handler(req)).status, 499); assert.equal(cancelled, true);
 });
+
+
+for (const extension of ["ogg", "OPUS"]) {
+  test(`WhatsApp ${extension}: MIME genérico não impede envio no contêiner correto`, async () => {
+    const { handler, calls } = setup();
+    const file = new File([oggHeader()], `PTT-20261114-WA0001.${extension}`, { type: "application/octet-stream" });
+    assert.equal((await handler(request(file))).status, 200);
+    assert.equal(calls[0].form.get("file").name, "audio.ogg");
+  });
+}
+
+test("silêncio digital WAV é rejeitado antes da API, mesmo se o mock inventaria texto", async () => {
+  const silent = wavFixture(); silent.fill(0, 44);
+  const { handler, calls } = setup([{ status: 200, body: { text: "Não deveria ser produzido." } }]);
+  const response = await handler(request(new File([silent], "silencio.wav")));
+  assert.equal(response.status, 422); assert.match((await response.json()).error, /silêncio/); assert.equal(calls.length, 0);
+});
+
+test("fallback que resulta em silêncio não faz segunda chamada ao provedor", async () => {
+  const silent = wavFixture(); silent.fill(0, 44);
+  const { handler, calls } = setup([{ status: 400, body: { error: { message: "Invalid file format", code: "invalid_value" } } }], async () => Buffer.from(silent));
+  const response = await handler(request(opus()));
+  assert.equal(response.status, 422); assert.match((await response.json()).error, /silêncio/); assert.equal(calls.length, 1);
+});
+
+for (const text of [null, 42, ["texto"]]) {
+  test(`resposta malformada da API (${typeof text}) recebe 502`, async () => {
+    const { handler } = setup([{ status: 200, body: { text } }]);
+    const response = await handler(request()); assert.equal(response.status, 502); assert.match((await response.json()).error, /resposta inválida/);
+  });
+}
+
+test("falha de leitura do corpo de upload não vaza detalhes internos", async () => {
+  const { handler, calls } = setup();
+  const body = new ReadableStream({ start(controller) { controller.error(new Error("private upload bytes")); } });
+  const req = new Request("http://localhost/api/transcribe", { method: "POST", body, duplex: "half", headers: { "content-type": "multipart/form-data; boundary=x" } });
+  const response = await handler(req);
+  assert.equal(response.status, 400); const message = await response.text(); assert.match(message, /envio foi interrompido/); assert.doesNotMatch(message, /private upload bytes/); assert.equal(calls.length, 0);
+});
+

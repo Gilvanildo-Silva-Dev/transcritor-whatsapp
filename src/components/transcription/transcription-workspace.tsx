@@ -30,12 +30,15 @@ export function TranscriptionWorkspace() {
 
   const [text, setText] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [feedbackError, setFeedbackError] = useState(false);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const copyId = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const dragDepth = useRef(0);
 
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
-  useEffect(() => () => { validationId.current++; transcriptionId.current++; xhrRef.current?.abort(); }, []);
+  useEffect(() => () => { validationId.current++; transcriptionId.current++; copyId.current++; xhrRef.current?.abort(); }, []);
 
   function cancelTranscription() {
     transcriptionId.current++;
@@ -47,6 +50,7 @@ export function TranscriptionWorkspace() {
   }
 
   function reset() {
+    copyId.current++;
     validationId.current++;
     setValidating(false);
     setDetails(null);
@@ -90,6 +94,7 @@ export function TranscriptionWorkspace() {
   }
   function transcribeAudio() {
     if (!file || processing || validating || xhrRef.current) return;
+    copyId.current++;
     const requestId = ++transcriptionId.current;
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
@@ -105,18 +110,18 @@ export function TranscriptionWorkspace() {
       setPhase("error");
       setTranscriptionError(message);
     };
-    xhr.open("POST", "/api/transcribe");
+    try { xhr.open("POST", "/api/transcribe"); } catch { fail("Não foi possível iniciar a conexão com o servidor. Tente novamente."); return; }
     xhr.responseType = "json";
     xhr.timeout = 300_000;
     xhr.upload.onprogress = (event) => {
-      if (isCurrent() && event.lengthComputable) setUploadPercent(Math.round(event.loaded / event.total * 100));
+      if (isCurrent() && xhrRef.current === xhr && event.lengthComputable) setUploadPercent(Math.round(event.loaded / event.total * 100));
     };
-    xhr.upload.onload = () => { if (isCurrent()) setPhase("processing"); };
+    xhr.upload.onload = () => { if (isCurrent() && xhrRef.current === xhr) setPhase("processing"); };
     xhr.onload = () => {
       if (!isCurrent()) return;
       const response = xhr.response as { text?: unknown; error?: unknown } | null;
       if (xhr.status < 200 || xhr.status >= 300) {
-        fail(typeof response?.error === "string" ? response.error : xhr.status === 413 ? "O servidor recusou o tamanho do áudio. Tente um arquivo menor." : "Não foi possível transcrever o áudio. Tente novamente.");
+        fail(typeof response?.error === "string" && response.error.trim() ? response.error : xhr.status === 413 ? "O servidor recusou o tamanho do áudio. Tente um arquivo menor." : "Não foi possível transcrever o áudio. Tente novamente.");
         return;
       }
       if (typeof response?.text !== "string" || !response.text.trim()) { fail("O servidor não retornou uma transcrição válida. Tente outro áudio."); return; }
@@ -132,26 +137,41 @@ export function TranscriptionWorkspace() {
     try { xhr.send(form); } catch { fail("Não foi possível iniciar o envio. Tente selecionar o áudio novamente."); }
   }
   async function copyText() {
+    const requestId = ++copyId.current;
     try {
       await navigator.clipboard.writeText(text);
+      if (copyId.current !== requestId) return;
+      setFeedbackError(false);
       setFeedback("Texto copiado para a área de transferência.");
     } catch {
-      setFeedback("Não foi possível copiar automaticamente. Selecione o texto e use a opção de copiar do seu dispositivo.");
+      if (copyId.current !== requestId) return;
+      textAreaRef.current?.focus();
+      textAreaRef.current?.select();
+      setFeedbackError(true);
+      setFeedback("A cópia automática foi bloqueada. O texto foi selecionado; use Ctrl+C ou a opção Copiar do seu dispositivo.");
     }
   }
 
   function downloadText() {
-    const url = URL.createObjectURL(new Blob(["\uFEFF", text], { type: "text/plain;charset=utf-8" }));
+    let url: string | undefined;
     const link = document.createElement("a");
-    link.href = url;
-    link.download = `${file?.name.replace(/\.[^.]+$/, "") || "transcricao"}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setFeedback("Download do TXT iniciado.");
+    try {
+      url = URL.createObjectURL(new Blob(["\uFEFF", text], { type: "text/plain;charset=utf-8" }));
+      link.href = url;
+      const basename = (file?.name.replace(/\.[^.]+$/, "") || "transcricao").replace(/[<>:"/\\|?*]/g, "_").slice(0, 120);
+      link.download = `${basename || "transcricao"}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      setFeedbackError(false);
+      setFeedback("Download do TXT iniciado.");
+    } catch {
+      setFeedbackError(true);
+      setFeedback("Não foi possível baixar o TXT. Tente novamente ou copie o texto.");
+    } finally {
+      link.remove();
+      if (url) { const release = url; setTimeout(() => URL.revokeObjectURL(release), 1000); }
+    }
   }
-
   return (
     <>
       <div className="mb-6 flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-sm leading-6 text-emerald-900">
@@ -191,14 +211,14 @@ export function TranscriptionWorkspace() {
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="flex size-8 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">02</span><h2 id="result-title" className="text-lg font-semibold text-slate-900">Transcrição</h2></div><span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${processing ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{phase === "uploading" ? "Enviando" : phase === "processing" ? "Processando" : phase === "success" ? "Concluída" : phase === "error" ? "Erro" : text.trim() ? "Texto manual" : "Aguardando"}</span></div>
           <div className="relative" aria-busy={processing}>
             <label htmlFor="transcription" className="mb-2 block text-xs font-medium text-slate-500">Texto da transcrição · editável</label>
-            <textarea id="transcription" value={text} onChange={(event) => { setText(event.target.value); setFeedback(""); }} disabled={processing} placeholder="Sua transcrição aparecerá aqui. Depois, você pode revisar o texto, copiá-lo ou baixar um arquivo TXT." className="min-h-80 w-full resize-y rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm leading-7 text-slate-700 placeholder:text-slate-400 disabled:opacity-50" />
+            <textarea ref={textAreaRef} id="transcription" value={text} onChange={(event) => { copyId.current++; setText(event.target.value); setFeedback(""); }} disabled={processing} placeholder="Sua transcrição aparecerá aqui. Depois, você pode revisar o texto, copiá-lo ou baixar um arquivo TXT." className="min-h-80 w-full resize-y rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm leading-7 text-slate-700 placeholder:text-slate-400 disabled:opacity-50" />
             {processing && <div className="absolute inset-x-0 bottom-0 top-6 flex flex-col items-center justify-center gap-3 rounded-xl bg-white/95"><Icon name="loader" width="30" height="30" className="animate-spin text-emerald-600" /><p className="text-sm font-medium text-slate-600">{phase === "uploading" ? "Enviando seu áudio…" : "Transformando fala em texto…"}</p><p className="text-xs text-slate-400">Aguarde a conclusão da transcrição</p></div>}
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-slate-400">{text.length.toLocaleString("pt-BR")} caracteres</span><div className="flex gap-2"><button type="button" onClick={copyText} disabled={!text.trim() || processing} className={actionClass}><Icon name="copy" width="15" height="15" />Copiar texto</button><button type="button" onClick={downloadText} disabled={!text.trim() || processing} className={actionClass}><Icon name="download" width="15" height="15" />Baixar TXT</button></div></div>
           {transcriptionError && <p role="alert" id="transcription-error" className="mt-5 rounded-lg bg-red-50 p-3 text-sm leading-6 text-red-700">{transcriptionError}</p>}
           <div aria-live="polite" role="status" className="mt-5 text-sm leading-6">
             {phase === "success" && <p className="flex items-center gap-2 text-emerald-700"><Icon name="check" />Transcrição concluída. Você pode revisar e editar o texto.</p>}
-            {feedback && <p className="mt-2 text-emerald-700">{feedback}</p>}
+            {feedback && <p className={`mt-2 ${feedbackError ? "text-amber-800" : "text-emerald-700"}`}>{feedback}</p>}
           </div>
         </Card>
       </div>
@@ -206,5 +226,7 @@ export function TranscriptionWorkspace() {
     </>
   );
 }
+
+
 
 
