@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 
-const MAX_SIZE = 25 * 1024 * 1024;
-const EXTENSIONS = ["ogg", "opus", "mp3", "m4a", "wav", "webm", "aac", "flac", "mp4"];
+import { AUDIO_ACCEPT, validateAudioFile, type AudioDetails } from "@/lib/audio/validation";
+
 const actionClass = "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:text-slate-600";
 
 function formatSize(bytes: number) {
@@ -16,6 +16,10 @@ export function TranscriptionWorkspace() {
   const [file, setFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [details, setDetails] = useState<AudioDetails | null>(null);
+  const [playbackUnavailable, setPlaybackUnavailable] = useState(false);
+  const validationId = useRef(0);
   const [error, setError] = useState("");
   const [processing, setProcessing] = useState(false);
   const [previewDone, setPreviewDone] = useState(false);
@@ -26,9 +30,13 @@ export function TranscriptionWorkspace() {
   const dragDepth = useRef(0);
 
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  useEffect(() => () => { validationId.current++; if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   function reset() {
+    validationId.current++;
+    setValidating(false);
+    setDetails(null);
+    setPlaybackUnavailable(false);
     if (timerRef.current) clearTimeout(timerRef.current);
     setFile(null);
     setAudioUrl("");
@@ -40,23 +48,36 @@ export function TranscriptionWorkspace() {
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function selectFiles(files: FileList | null) {
+  async function selectFiles(files: FileList | null) {
     if (!files?.length) return;
-    if (files.length !== 1) { setError("Selecione apenas um áudio por vez."); return; }
-    const selected = files[0];
-    const extension = selected.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!EXTENSIONS.includes(extension) && !selected.type.startsWith("audio/")) {
-      setError("Formato não reconhecido. Selecione um arquivo de áudio."); return;
+    const requestId = ++validationId.current;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setProcessing(false);
+    setPreviewDone(false);
+    setError("");
+    if (files.length !== 1) {
+      setValidating(false);
+      setError("Selecione apenas um áudio por vez. O arquivo anterior, se houver, foi mantido.");
+      return;
     }
-    if (!selected.size) { setError("O arquivo está vazio. Selecione outro áudio."); return; }
-    if (selected.size > MAX_SIZE) { setError("O áudio deve ter até 25 MB. Selecione um arquivo menor."); return; }
+    const selected = files[0];
+    setValidating(true);
+    const result = await validateAudioFile(selected);
+    if (validationId.current !== requestId) return;
+    setValidating(false);
+    if (!result.ok) {
+      setError(result.error + (file ? " O áudio anterior foi mantido." : ""));
+      return;
+    }
     reset();
     setFile(selected);
-    setAudioUrl(URL.createObjectURL(selected));
+    setDetails(result.details);
+    const canPlay = document.createElement("audio").canPlayType(result.details.mime) !== "";
+    setPlaybackUnavailable(!canPlay);
+    if (canPlay) setAudioUrl(URL.createObjectURL(new Blob([selected], { type: result.details.mime.split(";")[0] })));
   }
-
   function simulateProcessing() {
-    if (!file || processing) return;
+    if (!file || processing || validating) return;
     setProcessing(true);
     setPreviewDone(false);
     setFeedback("");
@@ -97,26 +118,29 @@ export function TranscriptionWorkspace() {
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <Card aria-labelledby="audio-title" className="min-w-0 border-slate-200 shadow-none">
           <div className="mb-6 flex items-center gap-3"><span className="flex size-8 items-center justify-center rounded-full bg-emerald-50 text-xs font-bold text-emerald-700">01</span><h2 id="audio-title" className="text-lg font-semibold text-slate-900">Seu áudio</h2></div>
-          <input ref={inputRef} id="audio-input" className="sr-only" type="file" accept="audio/*,.ogg,.opus,.mp3,.m4a,.wav,.webm,.aac,.flac,.mp4" aria-label="Selecionar arquivo de áudio" aria-describedby="audio-help" onChange={(event) => { selectFiles(event.target.files); event.target.value = ""; }} />
+          <input ref={inputRef} id="audio-input" className="sr-only" type="file" accept={AUDIO_ACCEPT} aria-label="Selecionar arquivo de áudio" aria-describedby="audio-help upload-error" aria-invalid={Boolean(error)} onChange={(event) => { void selectFiles(event.target.files); event.target.value = ""; }} />
           <div
             onDragEnter={(event) => { event.preventDefault(); dragDepth.current++; setDragging(true); }}
             onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }}
             onDragLeave={(event) => { event.preventDefault(); dragDepth.current--; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false); } }}
-            onDrop={(event) => { event.preventDefault(); dragDepth.current = 0; setDragging(false); selectFiles(event.dataTransfer.files); }}
+            onDrop={(event) => { event.preventDefault(); dragDepth.current = 0; setDragging(false); void selectFiles(event.dataTransfer.files); }}
             className={`flex min-h-64 flex-col items-center justify-center rounded-xl border-2 border-dashed px-5 py-8 text-center transition-colors ${dragging ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-slate-50/70"}`}
           >
             <span className="mb-5 flex size-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-emerald-700 shadow-sm"><Icon name="upload" width="26" height="26" /></span>
             <p className="text-sm font-semibold text-slate-800">{dragging ? "Solte seu áudio aqui" : "Arraste e solte seu áudio aqui"}</p>
             <p className="mb-5 mt-2 text-xs text-slate-400">ou escolha um arquivo no seu dispositivo</p>
             <button type="button" onClick={() => inputRef.current?.click()} className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-400 hover:text-emerald-700">{file ? "Selecionar outro áudio" : "Selecionar arquivo"}</button>
-            <p id="audio-help" className="mt-5 text-xs leading-5 text-slate-400">OGG, OPUS, MP3, M4A, WAV e outros áudios · Até 25 MB</p>
+            <p id="audio-help" className="mt-5 text-xs leading-5 text-slate-400">OGG, OPUS, MP3, M4A, WAV e WEBM · Até 25 MB</p>
           </div>
-          {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+          {validating && <p role="status" className="mt-4 flex items-center gap-2 text-sm text-emerald-700"><Icon name="loader" className="animate-spin" />Verificando o arquivo no seu dispositivo…</p>}
+          {error && <p id="upload-error" role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
           {file && <div className="mt-5 rounded-xl border border-slate-200 p-4">
-            <div className="flex items-center gap-3"><span className="rounded-lg bg-emerald-50 p-2.5 text-emerald-700"><Icon name="file" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-800" title={file.name}>{file.name}</p><p className="mt-1 break-all text-xs text-slate-500">{formatSize(file.size)} · {file.name.includes(".") ? file.name.split(".").pop()?.toUpperCase() : file.type || "Áudio"}</p></div><button type="button" onClick={reset} aria-label="Remover áudio selecionado" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Icon name="close" /></button></div>
-            {audioUrl && <audio key={audioUrl} src={audioUrl} controls preload="metadata" className="mt-4 h-10 w-full" aria-label={`Ouvir ${file.name}`} onError={() => setError("O navegador não conseguiu reproduzir este áudio. Tente outro formato, como MP3 ou WAV.")} />}
+            <div className="flex items-center gap-3"><span className="rounded-lg bg-emerald-50 p-2.5 text-emerald-700"><Icon name="file" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-800" title={file.name}>{file.name}</p><p className="mt-1 break-all text-xs text-slate-500">{formatSize(file.size)} · {details?.label ?? "Áudio"}</p></div><button type="button" onClick={reset} aria-label="Remover áudio selecionado" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Icon name="close" /></button></div>
+            {details?.note && <p className="mt-3 text-xs leading-5 text-slate-500">{details.note}</p>}
+            {audioUrl && !playbackUnavailable && <audio key={audioUrl} src={audioUrl} controls preload="metadata" className="mt-4 h-10 w-full" aria-label={`Ouvir ${file.name}`} onError={() => setPlaybackUnavailable(true)} />}
+            {playbackUnavailable && <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-800">Áudio reconhecido, mas este navegador não conseguiu reproduzi-lo. O arquivo continua selecionado. A conversão no servidor será conectada em uma próxima etapa; nenhuma conversão foi executada.</p>}
           </div>}
-          <button type="button" onClick={simulateProcessing} disabled={!file || processing} className="mt-6 flex w-full items-center justify-center gap-3 rounded-xl bg-emerald-700 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none">{processing ? <><Icon name="loader" className="animate-spin" />Processando prévia…</> : <>Transcrever áudio<Icon name="arrow" /></>}</button>
+          <button type="button" onClick={simulateProcessing} disabled={!file || processing || validating} className="mt-6 flex w-full items-center justify-center gap-3 rounded-xl bg-emerald-700 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none">{processing ? <><Icon name="loader" className="animate-spin" />Processando prévia…</> : <>Transcrever áudio<Icon name="arrow" /></>}</button>
           <div aria-live="polite" className="mt-3 min-h-5 text-center text-xs leading-5 text-slate-400">{processing ? "Simulação visual em andamento. Nenhum arquivo está sendo enviado." : "Modo de prévia · a IA ainda não está conectada"}</div>
         </Card>
 
@@ -138,4 +162,5 @@ export function TranscriptionWorkspace() {
     </>
   );
 }
+
 

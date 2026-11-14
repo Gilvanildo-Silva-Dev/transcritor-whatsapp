@@ -1,88 +1,86 @@
 ﻿# Transcritor de Áudios WhatsApp
 
-Aplicativo web para receber áudios do WhatsApp e converter fala em texto com inteligência artificial.
+Aplicativo Next.js com App Router, React, TypeScript e Tailwind CSS para preparar áudios do WhatsApp para transcrição. A integração com IA ainda não foi implementada.
 
-A interface principal está implementada com seleção e arraste de um áudio (até 25 MB), validação local, informações do arquivo, player, simulação visual de processamento e campo de texto editável com cópia e exportação TXT. Não há envio de arquivos, armazenamento ou integração com IA. A simulação não gera uma transcrição; insira texto manualmente para experimentar cópia e download.
+## Executar
 
-## Tecnologias
-
-- Next.js 16 com App Router e React 19
-- TypeScript em modo estrito
-- Tailwind CSS 4 via PostCSS
-- ESLint 9 com as regras Core Web Vitals e TypeScript do Next.js
-- npm com lockfile para instalações reproduzíveis
-
-## Requisitos e execução
-
-Node.js 20.9 ou superior e npm. Recomenda-se uma versão LTS suportada do Node.js.
+Node.js 20.9 ou superior para a aplicação; Node.js 24 para os testes unitários que executam TypeScript diretamente. Nenhuma chave de API é necessária nesta etapa.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Abra http://localhost:3000. Nenhuma chave de API ou variável de ambiente é necessária. O arquivo `.env.example` documenta esse estado; futuras configurações locais devem ficar em `.env.local`, que é ignorado pelo Git.
+Abra http://localhost:3000. No PowerShell, use `npm.cmd` caso a política de execução bloqueie `npm.ps1`.
 
-No PowerShell, caso a política de execução bloqueie `npm.ps1`, use `npm.cmd` no lugar de `npm`, sem alterar a política do sistema.
+## Upload e validação local
 
-## Comandos
+- Seleção pelo explorador e arrastar e soltar, com um arquivo por vez.
+- Extensões OGG, OPUS, MP3, M4A, WAV e WEBM, incluindo nomes de exportação do WhatsApp e extensões em maiúsculas.
+- Limite de 25 MiB (26.214.400 bytes), apresentado na interface como 25 MB; arquivos vazios são rejeitados.
+- A extensão é obrigatória e deve corresponder ao conteúdo reconhecido. O MIME informado pelo sistema não é usado como prova do formato.
+- Inspeção de até 64 KiB do cabeçalho, com leitura pontual adicional de quatro bytes em MP3 com metadados ID3 grandes. São reconhecidos Ogg/Opus, Ogg/Vorbis, frames MP3, chunks WAV e contêineres MPEG-4 e WEBM.
+- Arquivos OPUS precisam de cabeçalho Opus em contêiner Ogg. Arquivos incompatíveis com a extensão, ilegíveis, vazios ou com cabeçalho desconhecido recebem mensagens específicas.
+- Em M4A e WEBM, a interface informa que reconhecer o contêiner não confirma a presença ou integridade de uma faixa de áudio. A inspeção de cabeçalhos em qualquer formato não equivale a uma decodificação completa; corrupção posterior ainda pode causar falha de reprodução.
+- Remover ou substituir um arquivo cancela a validação anterior e o processamento visual pendente, limpa o texto e libera a URL local. Uma substituição inválida mantém o áudio anterior com uma mensagem explícita.
+- O player usa o MIME detectado e consulta a capacidade do navegador. Sem suporte ou após erro de decodificação, exibe uma mensagem e mantém o arquivo selecionado.
+
+Os arquivos são lidos somente no dispositivo. Não há endpoint de upload, envio de áudio, armazenamento ou conversão no navegador. O botão de transcrição continua sendo uma simulação visual sem geração de texto. É possível inserir texto manualmente para experimentar cópia e download TXT.
+
+## Conversão futura com FFmpeg
+
+`src/server/audio/conversion.ts` prepara `convertAudioToWav(file)` exclusivamente para o backend, protegido por `server-only`. O serviço não está conectado a nenhuma rota ou botão e não roda durante a seleção.
+
+Quando a conversão for integrada, o ambiente precisará de runtime Node.js e do executável FFmpeg instalado no servidor, disponível no PATH ou indicado por `FFMPEG_PATH` em `.env.local` (veja `.env.example`). Não é compatível com Edge Runtime. OPUS é aceito como entrada da mesma camada, sem tratamento no navegador.
+
+O serviço repete a validação, cria um diretório temporário exclusivo, executa FFmpeg sem shell e seleciona a primeira faixa de áudio para WAV PCM de 16 bits, mono, 16 kHz. Possui timeout de 120 segundos, limite de saída de 128 MiB, mensagens de falha e limpeza dos arquivos temporários após sucesso ou erro. Não usa nomes enviados pelo usuário para caminhos temporários.
+
+O executável FFmpeg não estava disponível neste ambiente; a camada foi preparada e verificada pelo TypeScript, mas uma conversão real ainda precisa ser testada no servidor com FFmpeg instalado. Uma futura rota deverá revalidar a entrada no servidor e definir limites de concorrência antes de ativar conversões.
+
+## Comandos e testes
 
 ```sh
-npm run lint       # ESLint, sem avisos
-npm run typecheck  # Verificação de tipos
+npm run lint       # ESLint sem avisos
+npm run typecheck  # TypeScript
+npm test           # 18 testes de validação, Node.js 24
 npm run build      # Build de produção
+npm run test:e2e   # 9 testes de navegador, após o build
 npm run start      # Servidor de produção, após o build
 ```
+
+Os testes E2E usam o Edge instalado (`msedge`), iniciam e encerram automaticamente o servidor de produção em `127.0.0.1:3100` e verificam seleção, arraste, limites, extensões falsas, substituição, remoção, concorrência de validações, codec indisponível, falha de decodificação, processamento local, ausência de envio e layout móvel de 375 px.
+
+Para outro navegador Chromium instalado, configure `PLAYWRIGHT_CHANNEL=chrome`; para os binários gerenciados pelo Playwright, use `PLAYWRIGHT_CHANNEL=chromium` após instalar o navegador conforme a documentação do Playwright.
+
+As fixtures dos formatos compactados são cabeçalhos sintéticos para detecção, não gravações decodificáveis. O player é testado com um WAV PCM válido; a indisponibilidade de codec e a falha de decodificação também são testadas separadamente. O fato de reconhecer um cabeçalho não é apresentado como sucesso de reprodução.
+
+A verificação desta etapa passou nos 18 testes unitários e nove testes E2E no Edge, além de lint, tipos e build. O endpoint `GET /api/health` permanece disponível.
 
 ## Organização
 
 ```text
 src/
-  app/
-    api/health/route.ts  # Endpoint GET /api/health
-    globals.css          # Tailwind e estilos globais
-    layout.tsx           # Layout raiz e metadados
-    page.tsx             # Página inicial
+  app/                      # Páginas, layout e Route Handlers
   components/
-    layout/              # Componentes de estrutura da interface
-    ui/                  # Componentes visuais reutilizáveis
-  server/                # Serviços exclusivos do backend
-  types/                 # Espaço para futuros contratos compartilhados
-public/                  # Arquivos estáticos
+    layout/                 # Cabeçalho
+    ui/                     # Card e ícones reutilizáveis
+    transcription/          # Interface e estados locais do upload
+  lib/audio/validation.ts   # Validação compartilhável, sem APIs de servidor
+  server/audio/conversion.ts # Adaptador FFmpeg exclusivo do backend
+  types/                    # Espaço para contratos compartilhados
+public/                     # Arquivos estáticos
+tests/
+  audio-fixtures.ts         # Fixtures locais
+  audio-validation.test.mjs # Testes unitários
+  e2e/upload.spec.ts        # Testes de navegador
 ```
 
-O App Router reúne páginas e Route Handlers. Componentes são Server Components por padrão; adicione `"use client"` somente quando houver necessidade de estado, eventos ou APIs do navegador. Os serviços do backend ficam em `src/server` e utilizam `server-only` para impedir importação em código de cliente. Futuras credenciais de IA devem permanecer exclusivamente no servidor e nunca usar o prefixo `NEXT_PUBLIC_`.
+Use `@/` para importar de `src`. Credenciais futuras devem ficar no servidor e nunca usar `NEXT_PUBLIC_`. O `INDEX.HTML` preexistente foi preservado e não participa das rotas Next.js.
 
-Use o alias `@/` para importar módulos de `src`. Mantenha lógica de negócio fora dos componentes de interface e exponha operações do backend por Route Handlers em `src/app/api`.
+## Ambiente Windows
 
-## Verificação manual
+Se a instalação retornar `UNABLE_TO_VERIFY_LEAF_SIGNATURE` e a autoridade certificadora já for confiável no Windows, execute `$env:NODE_USE_SYSTEM_CA = '1'` antes de `npm.cmd ci` com Node.js 24. Não desative a verificação TLS.
 
-Com o servidor ativo, a página inicial deve mostrar o nome do aplicativo e o aviso de desenvolvimento. `GET /api/health` deve responder HTTP 200 com:
+A instalação reporta sete alertas moderados na cadeia de desenvolvimento do ESLint; a tentativa anterior com `npm audit fix` não os resolveu. Consulte `npm audit` ao atualizar essas ferramentas.
 
-```json
-{ "status": "ok", "service": "transcritor-whatsapp" }
-```
-
-O `INDEX.HTML` preexistente foi preservado e não faz parte das rotas Next.js.
-
-Referências: [instalação do Next.js](https://nextjs.org/docs/app/getting-started/installation) e [Tailwind com Next.js](https://tailwindcss.com/docs/installation/framework-guides/nextjs).
-
-## Validacao da estrutura inicial
-
-- ESLint sem avisos, TypeScript e build de producao aprovados.
-- Servidor de producao iniciado e respostas HTTP 200 verificadas em `/` e `/api/health`.
-- `npm audit --omit=dev`: nenhuma vulnerabilidade encontrada na verificacao inicial.
-- A auditoria completa reportou sete alertas moderados na cadeia de dependencias de desenvolvimento do ESLint; `npm audit fix` nao os resolveu. Reavaliar ao atualizar essas ferramentas.
-
-Se a instalacao neste Windows apresentar `UNABLE_TO_VERIFY_LEAF_SIGNATURE` e a autoridade certificadora ja for confiavel no sistema, o Node.js 24 pode usar os certificados do Windows. No PowerShell, execute `$env:NODE_USE_SYSTEM_CA = '1'` antes de `npm.cmd ci`. Nao desative a verificacao TLS.
-
-## Verificacao manual da interface
-
-1. Selecione ou arraste um audio de ate 25 MB; confira nome, tamanho, formato e player.
-2. Experimente um arquivo vazio, acima do limite, de formato invalido ou varios arquivos; confira a mensagem de erro.
-3. Clique em "Transcrever audio"; confira o indicador de simulacao e o aviso final de IA indisponivel, sem texto gerado.
-4. Digite ou cole texto no campo e teste "Copiar texto" e "Baixar TXT". A copia depende da permissao de clipboard do navegador e de HTTPS ou localhost.
-5. Remova ou substitua o audio; confira que o estado e o texto anterior sao limpos e o processamento pendente e cancelado.
-6. Confira o layout em tela estreita e a navegacao por teclado. O suporte de reproducao depende dos codecs do navegador; arquivos nao reproduziveis exibem orientacao.
-
-A interface foi validada com lint, TypeScript, build e resposta HTTP. As interacoes em navegador precisam de verificacao manual neste ambiente, que nao possui ferramenta de automacao de navegador instalada.
+Referências: [Next.js](https://nextjs.org/docs/app/getting-started/installation), [capacidade de reprodução do navegador](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/canPlayType) e [documentação do FFmpeg](https://ffmpeg.org/ffmpeg.html).
