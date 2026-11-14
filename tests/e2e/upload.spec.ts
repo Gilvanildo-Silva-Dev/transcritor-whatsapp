@@ -15,7 +15,7 @@ async function drop(page: Page, files: { name: string; mimeType: string; buffer:
   await transfer.dispose();
 }
 
-test.beforeEach(async ({ page }) => { await page.goto("/"); });
+test.beforeEach(async ({ page }) => { await page.goto("/openai"); });
 
 test("seleção, player WAV, substituição, remoção e seleção repetida", async ({ page }) => {
   const button = page.getByRole("button", { name: "Transcrever áudio" });
@@ -126,5 +126,6 @@ test("layout de upload funciona em tela estreita sem rolagem horizontal", async 
   await expect(page.getByRole("button", { name: "Remover áudio selecionado" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
 
 

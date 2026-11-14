@@ -1,0 +1,3 @@
+﻿faster-whisper==1.2.1
+# Versao verificada com faster-whisper; PyAV 19 removeu metadata_errors.
+av==18.1.0

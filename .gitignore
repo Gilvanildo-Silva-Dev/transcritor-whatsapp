@@ -36,3 +36,8 @@ transcricoes/
 private/
 tmp/
 temp/
+.venv/
+.local-models/
+.local-cache/
+__pycache__/
+*.pyc

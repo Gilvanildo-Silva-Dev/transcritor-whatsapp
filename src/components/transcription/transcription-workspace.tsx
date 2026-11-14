@@ -12,7 +12,7 @@ function formatSize(bytes: number) {
   return bytes < 1024 * 1024 ? `${(bytes / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} KB` : `${(bytes / 1024 / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB`;
 }
 
-export function TranscriptionWorkspace() {
+export function TranscriptionWorkspace({ localMode = true }: { localMode?: boolean }) {
   const [file, setFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -110,9 +110,9 @@ export function TranscriptionWorkspace() {
       setPhase("error");
       setTranscriptionError(message);
     };
-    try { xhr.open("POST", "/api/transcribe"); } catch { fail("Não foi possível iniciar a conexão com o servidor. Tente novamente."); return; }
+    try { xhr.open("POST", localMode ? "/api/transcribe/local" : "/api/transcribe"); } catch { fail("Não foi possível iniciar a conexão com o servidor. Tente novamente."); return; }
     xhr.responseType = "json";
-    xhr.timeout = 300_000;
+    xhr.timeout = localMode ? 900_000 : 300_000;
     xhr.upload.onprogress = (event) => {
       if (isCurrent() && xhrRef.current === xhr && event.lengthComputable) setUploadPercent(Math.round(event.loaded / event.total * 100));
     };
@@ -176,7 +176,7 @@ export function TranscriptionWorkspace() {
     <>
       <div className="mb-6 flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-sm leading-6 text-emerald-900">
         <Icon name="shield" className="mt-0.5 shrink-0" />
-        <p><strong className="font-semibold">Você decide quando enviar.</strong> Ao clicar em Transcrever áudio, o arquivo será enviado ao servidor e à OpenAI. O aplicativo não armazena áudios permanentemente.</p>
+        <p>{localMode ? <><strong className="font-semibold">Transcrição real e gratuita.</strong> O áudio é processado pelo Whisper no computador que executa este aplicativo. Nenhum arquivo é enviado à OpenAI e sua chave não é utilizada.</> : <><strong className="font-semibold">Você decide quando enviar.</strong> Ao clicar em Transcrever áudio, o arquivo será enviado ao servidor e à OpenAI. O aplicativo não armazena áudios permanentemente.</>}</p>
       </div>
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <Card aria-labelledby="audio-title" className="min-w-0 border-slate-200 shadow-none">
@@ -201,17 +201,17 @@ export function TranscriptionWorkspace() {
             <div className="flex items-center gap-3"><span className="rounded-lg bg-emerald-50 p-2.5 text-emerald-700"><Icon name="file" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-800" title={file.name}>{file.name}</p><p className="mt-1 break-all text-xs text-slate-500">{formatSize(file.size)} · {details?.label ?? "Áudio"}</p></div><button type="button" onClick={reset} aria-label="Remover áudio selecionado" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Icon name="close" /></button></div>
             {details?.note && <p className="mt-3 text-xs leading-5 text-slate-500">{details.note}</p>}
             {audioUrl && !playbackUnavailable && <audio key={audioUrl} src={audioUrl} controls preload="metadata" className="mt-4 h-10 w-full" aria-label={`Ouvir ${file.name}`} onError={() => setPlaybackUnavailable(true)} />}
-            {playbackUnavailable && <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-800">Áudio reconhecido, mas este navegador não conseguiu reproduzi-lo. O arquivo continua selecionado. Você ainda pode transcrevê-lo. Quando necessário, a conversão será feita no servidor ao iniciar a transcrição.</p>}
+            {playbackUnavailable && <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-800">Áudio reconhecido, mas este navegador não conseguiu reproduzi-lo. O arquivo continua selecionado. {localMode ? "Mesmo sem prévia, você pode transcrevê-lo com o Whisper local. A decodificação será feita no computador, sem API paga." : "Você ainda pode transcrevê-lo. Quando necessário, a conversão será feita no servidor ao iniciar a transcrição."}</p>}
           </div>}
           <button type="button" onClick={transcribeAudio} disabled={!file || processing || validating} className="mt-6 flex w-full items-center justify-center gap-3 rounded-xl bg-emerald-700 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none">{processing ? <><Icon name="loader" className="animate-spin" />{phase === "uploading" ? "Enviando áudio…" : "Transcrevendo áudio…"}</> : <>Transcrever áudio<Icon name="arrow" /></>}</button>
-          <div aria-live="polite" className="mt-3 min-h-5 text-center text-xs leading-5 text-slate-400">{phase === "uploading" ? `Enviando arquivo: ${uploadPercent}%` : phase === "processing" ? "Processando o áudio. Isso pode levar alguns instantes." : "Transcrição com IA · envio somente ao clicar no botão"}</div>
+          <div aria-live="polite" className="mt-3 min-h-5 text-center text-xs leading-5 text-slate-400">{phase === "uploading" ? `Enviando arquivo: ${uploadPercent}%` : phase === "processing" ? (localMode ? "Whisper está processando no computador. Aguarde; o tempo depende do áudio e da CPU." : "Processando o áudio. Isso pode levar alguns instantes.") : localMode ? "Whisper local · gratuito · sem usar a chave da OpenAI" : "Transcrição com IA · envio somente ao clicar no botão"}</div>
         </Card>
 
         <Card aria-labelledby="result-title" className="min-w-0 border-slate-200 shadow-none">
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="flex size-8 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">02</span><h2 id="result-title" className="text-lg font-semibold text-slate-900">Transcrição</h2></div><span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${processing ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{phase === "uploading" ? "Enviando" : phase === "processing" ? "Processando" : phase === "success" ? "Concluída" : phase === "error" ? "Erro" : text.trim() ? "Texto manual" : "Aguardando"}</span></div>
           <div className="relative" aria-busy={processing}>
             <label htmlFor="transcription" className="mb-2 block text-xs font-medium text-slate-500">Texto da transcrição · editável</label>
-            <textarea ref={textAreaRef} id="transcription" value={text} onChange={(event) => { copyId.current++; setText(event.target.value); setFeedback(""); }} disabled={processing} placeholder="Sua transcrição aparecerá aqui. Depois, você pode revisar o texto, copiá-lo ou baixar um arquivo TXT." className="min-h-80 w-full resize-y rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm leading-7 text-slate-700 placeholder:text-slate-400 disabled:opacity-50" />
+            <textarea ref={textAreaRef} id="transcription" value={text} onChange={(event) => { copyId.current++; setText(event.target.value); setFeedback(""); }} disabled={processing} placeholder={localMode ? "Sua transcrição local aparecerá aqui. Você pode editar, copiar ou baixar o texto em TXT." : "Sua transcrição aparecerá aqui. Depois, você pode revisar o texto, copiá-lo ou baixar um arquivo TXT."} className="min-h-80 w-full resize-y rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm leading-7 text-slate-700 placeholder:text-slate-400 disabled:opacity-50" />
             {processing && <div className="absolute inset-x-0 bottom-0 top-6 flex flex-col items-center justify-center gap-3 rounded-xl bg-white/95"><Icon name="loader" width="30" height="30" className="animate-spin text-emerald-600" /><p className="text-sm font-medium text-slate-600">{phase === "uploading" ? "Enviando seu áudio…" : "Transformando fala em texto…"}</p><p className="text-xs text-slate-400">Aguarde a conclusão da transcrição</p></div>}
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-slate-400">{text.length.toLocaleString("pt-BR")} caracteres</span><div className="flex gap-2"><button type="button" onClick={copyText} disabled={!text.trim() || processing} className={actionClass}><Icon name="copy" width="15" height="15" />Copiar texto</button><button type="button" onClick={downloadText} disabled={!text.trim() || processing} className={actionClass}><Icon name="download" width="15" height="15" />Baixar TXT</button></div></div>
@@ -222,10 +222,13 @@ export function TranscriptionWorkspace() {
           </div>
         </Card>
       </div>
-      <p className="mt-6 flex items-center justify-center gap-2 text-xs text-slate-400"><Icon name="shield" width="15" height="15" />Envio apenas ao transcrever · Sem armazenamento permanente no aplicativo</p>
+      <p className="mt-6 flex items-center justify-center gap-2 text-xs text-slate-400"><Icon name="shield" width="15" height="15" />{localMode ? "Whisper local · Sem envio à OpenAI · Sem consumo de API" : "Envio apenas ao transcrever · Sem armazenamento permanente no aplicativo"}</p>
     </>
   );
 }
+
+
+
 
 
 

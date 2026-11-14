@@ -29,7 +29,7 @@ test.beforeAll(async () => {
   transportUrl = `http://127.0.0.1:${(transport.address() as AddressInfo).port}/transcribe`;
 });
 test.afterAll(async () => { await new Promise<void>((resolve) => transport.close(() => resolve())); });
-test.beforeEach(async ({ page }) => { await page.goto("/"); });
+test.beforeEach(async ({ page }) => { await page.goto("/openai"); });
 
 test("envio multipart, processamento, sucesso, edição e download da transcrição", async ({ page }) => {
   await page.route("**/api/transcribe", (route) => route.continue({ url: transportUrl }));
@@ -248,6 +248,7 @@ test("API com texto semelhante a HTML continua sendo texto, sem execução", asy
   await expect(page.getByLabel("Texto da transcrição · editável")).toHaveValue(text);
   expect(await page.evaluate(() => "privateMarker" in window)).toBe(false);
 });
+
 
 
 

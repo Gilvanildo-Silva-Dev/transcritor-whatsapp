@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const git = (args, input) => execFileSync("git", args, { encoding: "utf8", input, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
-const blocked = /\.(?:ogg|opus|mp3|m4a|wav|webm|aac|flac|mp4|mpeg|mpga|txt|pem|key|p12|pfx)$/i;
+const blocked = /\.(?:ogg|opus|mp3|m4a|wav|webm|aac|flac|mp4|mpeg|mpga|txt|pem|key|p12|pfx|bin|onnx|safetensors)$/i;
 const keyPattern = /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}/;
 function localKeys() {
   const keys = [];
@@ -22,7 +22,7 @@ export function auditRepositoryPrivacy({ history = false, browserBuild = false }
   const secrets = localKeys();
   const issues = [];
   const check = (path, content, scope) => {
-    if ((/(^|\/)\.env(?:\.|$)/.test(path) && path !== ".env.example") || blocked.test(path) || /(^|\/)(uploads|recordings|transcriptions|transcricoes|private)\//.test(path)) {
+    if ((/(^|\/)\.env(?:\.|$)/.test(path) && path !== ".env.example") || blocked.test(path) || /(^|\/)(uploads|recordings|transcriptions|transcricoes|private|\.venv|\.local-models|\.local-cache)\//.test(path)) {
       issues.push({ scope, reason: "arquivo privado ou formato de saída/mídia" }); return;
     }
     if (content && (keyPattern.test(content) || secrets.some((key) => content.includes(key)))) issues.push({ scope, reason: "possível credencial" });
@@ -75,5 +75,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   console.log(JSON.stringify(report, null, 2));
   if (!report.ok) process.exitCode = 1;
 }
+
 
 

@@ -1,63 +1,89 @@
 ﻿# Transcritor de Áudios WhatsApp
 
-Aplicativo Next.js App Router com TypeScript, React e Tailwind CSS para selecionar áudios, transcrever com a API da OpenAI, revisar o texto, copiá-lo e baixar TXT.
+Selecione seu áudio e transcreva de verdade **gratuitamente no seu computador**, usando Whisper local. A integração paga com OpenAI é uma opção separada em `/openai`.
 
-## Configuração e execução
+## Usar gratuitamente
 
-Use Node.js 20.9 ou superior (Node.js 24 recomendado) e npm.
+Neste computador o ambiente Python e o modelo já foram instalados. Abra o terminal na pasta do projeto e execute:
+
+```powershell
+npm.cmd run dev
+```
+
+Acesse **http://localhost:3000**, clique em **Selecionar arquivo**, escolha seu áudio e clique em **Transcrever áudio**. Você pode ouvir a prévia, editar o resultado, copiar e baixar TXT. A página inicial usa somente o motor local: não precisa de chave e não consome créditos de API.
+
+A execução acontece no computador que roda o servidor do aplicativo. Com `localhost`, é o próprio computador. A gravação é temporária e apagada após o processamento, inclusive em erro/cancelamento. O áudio nunca é enviado à OpenAI pelo modo gratuito.
+
+## Instalar em outro computador
+
+Requisitos: Node.js 24 recomendado, Python 3.11 ou superior compatível com as dependências binárias e espaço para o ambiente/modelo.
 
 ```sh
 npm ci
+npm run setup:local
 npm run dev
 ```
 
-Abra http://localhost:3000. No PowerShell, use `npm.cmd` se a política do Windows bloquear `npm.ps1`.
+`setup:local` cria `.venv`, instala faster-whisper e PyAV e baixa os pesos públicos do Whisper base (aproximadamente 145 MB, além das dependências). Esse download exige internet somente na configuração. Não exige conta, chave da OpenAI ou token Hugging Face. O binário do modelo é conferido por tamanho e SHA-256; o arquivo final só é criado após download íntegro.
 
-Se `.env.local` ainda não existir, copie `.env.example` para `.env.local`. Preserve o arquivo local caso já esteja configurado. Preencha somente no servidor:
+A inferência usa CPU, int8, português e filtro de atividade de voz (VAD). `HF_HUB_OFFLINE` e `local_files_only` impedem downloads pelo motor durante a transcrição. Os pesos ficam em `.local-models/whisper-base`; ambiente e modelos estão fora do Git e não são empacotados automaticamente pelo Next.js.
+
+A versão PyAV 18.1.0 está fixada porque PyAV 19 removeu um parâmetro ainda utilizado por faster-whisper 1.2.1. As bibliotecas de decodificação vêm com PyAV: o modo local não exige instalar o executável FFmpeg separadamente para OGG/OPUS.
+
+O processamento pode ser mais lento em computadores modestos. Há limite de um áudio por vez e até 14 minutos por processamento local; o navegador espera até 15 minutos. Áudios longos podem precisar ser divididos. O modelo base pode errar palavras, principalmente com ruído: revise o texto antes de utilizá-lo.
+
+## Modo OpenAI opcional
+
+Acesse `http://localhost:3000/openai` somente se quiser usar a API paga. A opção está identificada na interface e nunca é usada como fallback automático do motor gratuito.
+
+Se `.env.local` ainda não existir, copie `.env.example`; preserve a configuração existente. Defina a chave somente no servidor:
 
 ```dotenv
 OPENAI_API_KEY=sua_chave_da_api
 FFMPEG_PATH=C:/ffmpeg/bin/ffmpeg.exe
 ```
 
-A chave é criada no [painel da OpenAI](https://platform.openai.com/api-keys) e precisa ter acesso a `gpt-transcribe`. Reinicie o servidor após alterar o ambiente. Nunca use `NEXT_PUBLIC_` para credenciais. O SDK é utilizado exclusivamente em módulos `server-only`; o build não precisa de chave.
+O modelo é `gpt-transcribe`, pelo SDK oficial. Reinicie o servidor após alterar o ambiente. Nunca use `NEXT_PUBLIC_` para credenciais.
 
-`FFMPEG_PATH` é opcional se o executável estiver no PATH. O FFmpeg só é necessário quando o provedor rejeita um formato/codec e o backend precisa converter para WAV. OPUS exportado pelo WhatsApp com contêiner Ogg é enviado como `audio.ogg`, mantendo os bytes e sem exigir conversão. Isso normaliza o nome de um contêiner já reconhecido, não converte um formato por simples renomeação.
+`FFMPEG_PATH` só é necessário no modo OpenAI se houver uma rejeição de formato/codec que exija conversão para WAV; pode ficar vazio quando FFmpeg já estiver no PATH. OPUS em Ogg é enviado como `audio.ogg`, mantendo os bytes. A conversão de fallback é feita uma única vez, com limpeza em `finally`.
 
-## Interface e dados
+O subprocesso de transcrição gratuita não recebe `OPENAI_API_KEY`. Falhas do motor local exibem erro de configuração/processamento, sem mudar silenciosamente para a API paga.
 
-- Seleção pelo explorador e arrastar/soltar um arquivo por vez, com nome, tamanho, formato e player quando suportado.
-- A seleção e a prévia são locais. O envio ao servidor e à OpenAI ocorre somente ao clicar em **Transcrever áudio**.
-- Estados de envio com progresso, processamento, sucesso e erro; remover ou substituir o áudio cancela a requisição e ignora respostas antigas.
-- O resultado fica editável. **Copiar texto** usa o conteúdo atual; quando o clipboard é negado ou indisponível, seleciona o texto e orienta a cópia manual.
-- **Baixar TXT** exporta o conteúdo atual em UTF-8 com BOM, preservando acentos, emoji e quebras de linha. Texto vazio desabilita as ações.
-- Não há banco, localStorage ou armazenamento permanente de áudios/transcrições. Os temporários da conversão são apagados em `finally`, inclusive após erro ou cancelamento. As políticas da OpenAI são próprias do provedor.
+## Configuração local opcional
 
-## Endpoint e validação
+Os caminhos padrão funcionam sem preencher variáveis. Para um ambiente personalizado, configure `.env.local`:
 
-`POST /api/transcribe` recebe exatamente um arquivo no campo `file`, por multipart/form-data. Retorna `{ "text": "..." }` ou `{ "error": "..." }`, sem cache.
-
-```sh
-curl -X POST http://localhost:3000/api/transcribe -F "file=@mensagem.ogg"
+```dotenv
+LOCAL_PYTHON_PATH=
+LOCAL_MODEL_PATH=
 ```
 
-Formatos: OGG/Opus, OGG/Vorbis, OPUS, MP3, M4A, WAV e WEBM. Extensão, cabeçalho real, arquivo vazio e tamanho são verificados no navegador e no backend, sem confiar no MIME informado pelo sistema. O limite é 25 MiB (26.214.400 bytes), exibido como 25 MB, com até 64 KiB extras para o multipart. O corpo é contado durante a leitura, inclusive sem Content-Length.
+`setup:local` e o servidor leem esses caminhos. `LOCAL_MODEL_PATH` deve apontar para um diretório com os arquivos do Whisper base, não para um identificador remoto de modelo. Em instalação personalizada, provisione scripts, Python e pesos junto ao servidor; eles não fazem parte de um pacote standalone automático.
 
-A validação rejeita, entre outros casos, frames MP3 truncados, tabelas/pacotes Ogg incompletos, WAV com chunks/frames inconsistentes e WEBM sem DocType EBML válido. A inspeção de cabeçalhos não equivale à decodificação completa; M4A e WEBM reconhecem o contêiner, sem garantir a integridade de toda a faixa.
+## Upload, texto e privacidade
 
-WAV PCM e IEEE float com silêncio digital comprovado são rejeitados antes de chamar a API, sem aplicar um limiar que descarte gravações baixas. A mesma verificação ocorre após uma conversão para WAV. Não é um detector geral de fala: ruído, áudio comprimido sem decodificação e silêncio acústico dependem da análise do provedor. Respostas vazias recebem erro de ausência de fala; respostas malformadas não viram sucesso.
+- Seleção e arrastar/soltar de OGG, OPUS, MP3, M4A, WAV e WEBM, um arquivo por vez, até 25 MiB (26.214.400 bytes), exibidos como 25 MB.
+- Validação de extensão/cabeçalho/tamanho no navegador e backend. Arquivos vazios, truncados e extensões falsas recebem mensagens claras.
+- Prévia local quando o navegador suporta o codec. Falha do player não impede tentar transcrição local.
+- Remover/substituir cancela o processamento e impede resultados antigos de reaparecer.
+- Cópia do texto editado, seleção manual se o clipboard for negado e TXT UTF-8 com BOM. Nenhum texto fictício é um resultado permanente.
+- Silêncio digital WAV comprovado é rejeitado antes do motor. O motor local usa VAD para reduzir transcrições sem fala; respostas sem texto retornam erro claro.
+- Nenhum áudio/transcrição é gravado permanentemente pelo aplicativo. O backend limpa temporários após sucesso/erro/cancelamento.
+- `.env.local`, mídias, TXT, `.venv`, modelos, caches e artefatos de teste estão ignorados. A auditoria procura credenciais e arquivos proibidos em candidatos, índice, histórico e bundles, sem imprimir a chave.
 
-A integração usa SDK oficial, modelo `gpt-transcribe`, `languages: ["pt"]` e contexto de português brasileiro, preservando o idioma original. Credenciais inválidas, ausência de configuração, falta de acesso ao modelo, limites/créditos, rede, timeout e erros de formato recebem mensagens claras, sem expor valores de chave ou mensagens internas do provedor. Upload interrompido retorna 400, tamanho excessivo 413, formato do envio incorreto 415 e áudio inválido/sem fala 422.
+## Endpoints
 
-## Conversão e limites operacionais
+| Rota | Uso |
+| --- | --- |
+| `POST /api/transcribe/local` | Whisper CPU gratuito, sem OpenAI |
+| `POST /api/transcribe` | SDK OpenAI, API paga com chave |
+| `GET /api/health` | Saúde da aplicação |
 
-Se a API rejeitar especificamente formato, codec ou decodificação, há uma única tentativa adicional com FFmpeg para WAV PCM de 16 bits, mono, 16 kHz. Erros de credenciais, créditos ou indisponibilidade não disparam conversão.
+As duas rotas recebem exatamente um arquivo no campo multipart `file`. Retornam `{ "text": "..." }` ou `{ "error": "..." }`, com `Cache-Control: no-store`. O retorno local também informa `engine: "local"`.
 
-O processo usa diretório temporário exclusivo, nomes fixos, execução sem shell e somente protocolos locais. Seu fechamento é aguardado antes da limpeza dos arquivos. Saída truncada ou acima do limite é rejeitada, com orientação para dividir o áudio.
+A validação multipart é compartilhada e limita a leitura mesmo sem Content-Length. Erros de arquivo, rede, configuração, timeout e modelo são tratados. Não há envio a serviços externos pelo fluxo local. Para hospedar em outro lugar, é necessário um servidor Node.js com Python/modelo, CPU/memória e permissão para subprocessos; Edge Runtime não é compatível.
 
-Prazos: 120 segundos por conversão/chamada do SDK, 270 segundos para a operação e 300 segundos no navegador. A rota declara `maxDuration = 300`. O ambiente de hospedagem precisa permitir o corpo da requisição e esse tempo de processamento; limites do proxy/plataforma podem ser menores. Conversão requer runtime Node.js com FFmpeg e acesso ao diretório temporário, não Edge Runtime.
-
-## Testes e relatório
+## Testes
 
 ```sh
 npm run lint
@@ -65,42 +91,21 @@ npm run typecheck
 npm test
 npm run build
 npm run test:e2e
+npm run test:local
 npm run check:privacy
 npm audit
 ```
 
-A revisão final aprovou **71 testes automatizados e 30 testes no Edge**, lint, TypeScript e build. O relatório detalhado está em [RELATORIO_TESTES.md](RELATORIO_TESTES.md), incluindo a cobertura e as limitações.
+A suíte de 82 testes automatizados usa mocks e bloqueia rede externa. Os 34 testes no Edge cobrem seleção, upload, ambos os modos, edição/cópia/TXT, erros e cancelamento. O servidor E2E recebe chave vazia para impedir cobrança acidental.
 
-Os testes de backend usam o SDK com transporte controlado. Rede externa é bloqueada pelo runner, e a suíte E2E inicia o servidor com chave vazia, sem utilizar `.env.local` para chamadas cobradas. Sucessos são simulados apenas no transporte de teste; nunca há transcrição fixa na aplicação. As fixtures são cabeçalhos/sinais sintéticos gerados em código, sem gravações pessoais.
+`test:local` é uma verificação adicional de inferência real gratuita: gera fala sintética portuguesa com a voz Maria do Windows, codifica WAV/OPUS, usa o modelo instalado e testa um OPUS silencioso com VAD. Não usa gravações pessoais nem API. Limpa todos os áudios gerados ao terminar. Esse teste requer Windows com essa voz e `setup:local` já concluído; o aplicativo não depende de SAPI para transcrever arquivos do usuário.
 
-E2E exige build atualizado e Edge instalado, usa `127.0.0.1:3100` e encerra seu servidor ao terminar. Para Chrome instalado, configure `PLAYWRIGHT_CHANNEL=chrome`. O teste de cópia confere o clipboard real e considera a normalização LF/CRLF do Windows.
+O relatório detalhado está em [RELATORIO_TESTES.md](RELATORIO_TESTES.md). `REGISTRO.md` preserva uma linha por execução, com data/hora de Fortaleza e etapas.
 
-## Privacidade no repositório
+## Referências
 
-`.gitignore` exclui `.env.local`, mídias, TXT, diretórios de dados privados, relatórios/artefatos do Playwright e chaves de certificado. `.env.example` contém campos vazios e deve permanecer disponível.
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+- [Modelo Whisper base convertido](https://huggingface.co/Systran/faster-whisper-base)
+- [API de transcrição OpenAI](https://developers.openai.com/api/docs/guides/speech-to-text)
 
-`npm run check:privacy` verifica arquivos rastreados e candidatos, blobs do índice Git, histórico e bundles do navegador. Procura extensões privadas, padrões de chave e o valor da chave local, sem imprimir segredos. Arquivos privados existentes e ignorados permanecem no computador; o verificador não os remove nem os envia. Nenhuma chave, mídia ou transcrição privada foi acrescentada durante esta revisão.
-
-## Organização
-
-```text
-src/app/api/transcribe/route.ts # POST, runtime Node.js
-src/components/transcription/  # Upload, estados e ações de texto
-src/lib/audio/validation.ts    # Cabeçalhos e limites
-src/lib/audio/wav.ts           # Estrutura de WAV
-src/server/audio/transcribe.ts # Multipart, SDK e erros
-src/server/audio/silence.ts    # Silêncio digital comprovado
-src/server/audio/conversion.ts # FFmpeg e limpeza
-scripts/check-privacy.mjs      # Auditoria sem imprimir credenciais
-tests/                        # Validação, endpoint, conversão e navegador
-```
-
-`REGISTRO.md` recebe uma linha por execução com data/hora de Fortaleza e etapas realizadas, preservando o histórico.
-
-## Dependências e Windows
-
-A cadeia de desenvolvimento do TypeScript ESLint utiliza um override restrito de minimatch para `^11.0.7`, corrigindo os alertas da versão transitiva anterior. Lint e build foram verificados com a substituição. A auditoria final do npm retornou zero vulnerabilidades; o override pode ser removido quando a dependência original incorporar a correção.
-
-Se houver `UNABLE_TO_VERIFY_LEAF_SIGNATURE` e a autoridade certificadora já for confiável no Windows, use `$env:NODE_USE_SYSTEM_CA = '1'` com Node.js 24, sem desativar TLS.
-
-Referências: [OpenAI — transcrição de arquivos](https://developers.openai.com/api/docs/guides/speech-to-text), [SDK oficial](https://github.com/openai/openai-node), [FFmpeg](https://ffmpeg.org/ffmpeg.html) e [correção de minimatch](https://github.com/isaacs/minimatch/releases).
+O override restrito de minimatch na cadeia de lint corrige os alertas transitivos anteriores. A auditoria npm retornou zero vulnerabilidades na revisão anterior; verifique novamente ao atualizar dependências.

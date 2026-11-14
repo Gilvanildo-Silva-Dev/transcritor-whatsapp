@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --conditions=react-server --import tsx --import ./tests/network-guard.mjs --test tests/*.test.mjs",
     "test:e2e": "playwright test",
-    "check:privacy": "node scripts/check-privacy.mjs --history --build"
+    "check:privacy": "node scripts/check-privacy.mjs --history --build",
+    "setup:local": "node scripts/setup-local.mjs",
+    "test:local": "node --conditions=react-server --import tsx --import ./tests/network-guard.mjs tests/local-smoke.mjs"
   },
   "dependencies": {
     "next": "^16.0.0",
