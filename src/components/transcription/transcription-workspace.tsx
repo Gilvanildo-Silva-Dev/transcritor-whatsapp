@@ -68,7 +68,7 @@ export function TranscriptionWorkspace({ localMode = true }: { localMode?: boole
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  async function selectFiles(files: FileList | null) {
+  async function selectFiles(files: FileList | File[] | null) {
     if (!files?.length) return;
     const requestId = ++validationId.current;
     cancelTranscription();
@@ -94,6 +94,15 @@ export function TranscriptionWorkspace({ localMode = true }: { localMode?: boole
     const canPlay = document.createElement("audio").canPlayType(result.details.mime) !== "";
     setPlaybackUnavailable(!canPlay);
     if (canPlay) setAudioUrl(URL.createObjectURL(new Blob([selected], { type: result.details.mime.split(";")[0] })));
+  }
+  async function openAudioPicker() {
+    if (!window.transcritorDesktop?.selectAudio) { inputRef.current?.click(); return; }
+    try {
+      const result = await window.transcritorDesktop.selectAudio();
+      if (!result) return;
+      if ("error" in result) { setError(result.error); return; }
+      await selectFiles([new File([new Uint8Array(result.file.data)], result.file.name)]);
+    } catch { setError("Nao foi possivel abrir o seletor de audio. Tente novamente ou arraste o arquivo para a area indicada."); }
   }
   function transcribeAudio() {
     if (!file || processing || validating || xhrRef.current) return;
@@ -197,7 +206,7 @@ export function TranscriptionWorkspace({ localMode = true }: { localMode?: boole
             <span className="mb-5 flex size-14 items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm"><Icon name="upload" width="26" height="26" /></span>
             <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{dragging ? "Solte seu áudio aqui" : "Arraste e solte seu áudio aqui"}</p>
             <p className="mb-5 mt-2 text-xs text-slate-500 dark:text-slate-400">ou escolha um arquivo no seu dispositivo</p>
-            <button type="button" onClick={() => inputRef.current?.click()} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 shadow-sm transition hover:border-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300">{file ? "Selecionar outro áudio" : "Selecionar arquivo"}</button>
+            <button type="button" onClick={() => { void openAudioPicker(); }} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 shadow-sm transition hover:border-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300">{file ? "Selecionar outro áudio" : "Selecionar arquivo"}</button>
             <p id="audio-help" className="mt-5 text-xs leading-5 text-slate-500 dark:text-slate-400">OGG, OPUS, MP3, M4A, WAV e WEBM · Até 25 MB</p>
           </div>
           {validating && <p role="status" className="mt-4 flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400"><Icon name="loader" className="animate-spin" />Verificando o arquivo no seu dispositivo…</p>}

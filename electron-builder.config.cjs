@@ -3,7 +3,7 @@ module.exports = {
   productName: "Transcritor de Áudios WhatsApp",
   directories: { output: "dist-desktop" },
   asar: true,
-  files: ["desktop/main.cjs", "desktop/preload.cjs", "desktop/security.cjs", "package.json", "!node_modules/**/*"],
+  files: ["desktop/main.cjs", "desktop/preload.cjs", "desktop/security.cjs", "desktop/audio-picker.cjs", "package.json", "!node_modules/**/*"],
   extraResources: [{ from: ".desktop-build/resources", to: ".", filter: ["**/*"] }],
   npmRebuild: false,
   compression: "normal",

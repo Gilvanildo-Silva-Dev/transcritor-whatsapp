@@ -3,6 +3,7 @@ let theme = process.argv.find((arg) => arg.startsWith("--transcritor-theme="))?.
 if (!["light", "dark", "system"].includes(theme)) theme = "system";
 contextBridge.exposeInMainWorld("transcritorDesktop", {
   isDesktop: true,
+  selectAudio: () => ipcRenderer.invoke("desktop:audio:select"),
   getTheme: () => theme,
   setTheme: (value) => {
     if (!["light", "dark", "system"].includes(value)) return Promise.reject(new Error("Invalid theme."));

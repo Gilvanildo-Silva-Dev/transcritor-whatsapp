@@ -13,7 +13,7 @@ O backend retorna `language.code` e `language.confidence` (probabilidade entre 0
 O aplicativo não infere sexo, gênero ou identidade da pessoa a partir da voz. A análise desta etapa se limita ao idioma.
 ## Aplicativo desktop para Windows
 
-Abra `dist-desktop/TranscritorWhatsApp-Setup-0.1.0.exe` e siga o assistente. Depois, abra **Transcritor de Áudios WhatsApp** pelo atalho. A versão `TranscritorWhatsApp-Portable-0.1.0.exe` dispensa instalação e extrai os recursos ao iniciar.
+Abra `dist-desktop/TranscritorWhatsApp-Setup-0.1.1.exe` e siga o assistente. Depois, abra **Transcritor de Áudios WhatsApp** pelo atalho. A versão `TranscritorWhatsApp-Portable-0.1.1.exe` dispensa instalação e extrai os recursos ao iniciar.
 
 O pacote Windows x64 inclui Electron, Python portátil e Whisper base. No computador de destino não exige navegador, terminal, Python, Node.js ou chave de API. A transcrição gratuita funciona offline. Selecione ou arraste um áudio, transcreva, edite, copie e salve TXT com a janela nativa. Temas Claro/Escuro/Sistema persistem entre aberturas.
 
@@ -119,3 +119,5 @@ O relatório detalhado está em [RELATORIO_TESTES.md](RELATORIO_TESTES.md). `REG
 - [API de transcrição OpenAI](https://developers.openai.com/api/docs/guides/speech-to-text)
 
 O override restrito de minimatch na cadeia de lint corrige os alertas transitivos anteriores. A auditoria npm retornou zero vulnerabilidades na revisão anterior; verifique novamente ao atualizar dependências.
+
+Na versão 0.1.1, o botão Selecionar arquivo usa o diálogo nativo do Windows, iniciando na Área de Trabalho. Somente nome e bytes do arquivo escolhido são entregues à interface; não há acesso arbitrário a caminhos. Arquivos vazios, indisponíveis, incompatíveis ou maiores que 25 MB exibem erro claro. Feche a versão anterior antes de abrir a atualização, para evitar que a instância antiga continue em uso. Nos testes automatizados, apenas a resposta do diálogo do sistema é simulada; IPC, leitura do arquivo, validação e transcrição são reais.

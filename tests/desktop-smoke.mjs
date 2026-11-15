@@ -20,7 +20,15 @@ try {
  assert.equal(await page.evaluate(()=>window.transcritorDesktop.isDesktop),true);
  assert.equal((await fetch(page.url()+'api/health')).status,403);
  assert.equal(await page.evaluate(async()=> (await fetch('/api/health')).status),200);
- await page.locator('input[type=file]').setInputFiles(audio);
+ // Mock only the operating-system dialog response; keep IPC, disk reading and transcription real.
+ await app.evaluate(({dialog, app}, path) => {
+   dialog.showOpenDialog = async (_parent, options) => {
+     if (options.defaultPath !== app.getPath('desktop') || options.properties.join(',') !== 'openFile') throw new Error('Invalid native picker options');
+     return {canceled:false,filePaths:[path]};
+   };
+ }, audio);
+ await page.getByRole('button',{name:'Selecionar arquivo',exact:true}).click();
+ await page.getByText('synthetic.wav',{exact:true}).waitFor();
  await page.getByRole('button',{name:'Transcrever áudio',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('textarea')?.value.length>30,{},{timeout:180000});
  await page.locator('textarea').fill('Transcrição editada no aplicativo desktop.');

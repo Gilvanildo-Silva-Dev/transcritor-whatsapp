@@ -8,6 +8,8 @@ const { parseEnv } = require("node:util");
 const { execFile } = require("node:child_process");
 const { isSameOrigin, validTheme } = require("./security.cjs");
 
+const { chooseAudio } = require("./audio-picker.cjs");
+let choosingAudio = false;
 const product = "Transcritor de Áudios WhatsApp";
 app.setName(product);
 if (process.env.TRANSCRITOR_DESKTOP_TEST === "1" && process.env.TRANSCRITOR_DESKTOP_PROFILE) app.setPath("userData", resolve(process.env.TRANSCRITOR_DESKTOP_PROFILE));
@@ -148,6 +150,13 @@ function createWindow(token) {
   window.on("closed", () => { window = null; });
   return window.loadURL(origin);
 }
+ipcMain.handle("desktop:audio:select", async (event) => {
+  if (!window || event.sender !== window.webContents || !event.senderFrame || event.senderFrame.parent !== null || !isSameOrigin(event.senderFrame.url, origin)) throw new Error("Invalid request.");
+  if (choosingAudio) return null;
+  choosingAudio = true;
+  try { return await chooseAudio(dialog, window, app.getPath("desktop")); }
+  finally { choosingAudio = false; }
+});
 ipcMain.handle("desktop:theme:set", (event, theme) => {
   if (!window || event.sender !== window.webContents || (!event.senderFrame || event.senderFrame.parent !== null) || !isSameOrigin(event.senderFrame.url, origin) || !["light", "dark", "system"].includes(theme)) throw new Error("Invalid request.");
   saveTheme(theme);

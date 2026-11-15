@@ -30,3 +30,31 @@ test('desktop: acompanha trabalhos para cancelar e liberar no encerramento',()=>
   first.finish(); second.finish(); assert.equal(process.__transcritorDesktopJobs.size,0);
  } finally { if(previous===undefined)delete process.env.TRANSCRITOR_DESKTOP_RUNTIME;else process.env.TRANSCRITOR_DESKTOP_RUNTIME=previous; }
 });
+import {mkdtemp,writeFile,open,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,relative,basename} from 'node:path';
+const {chooseAudio,readSelectedAudio}=createRequire(import.meta.url)('../desktop/audio-picker.cjs');
+test('desktop: seletor nativo abre Desktop e retorna apenas nome e bytes do arquivo escolhido',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'transcritor-picker-test-'));
+ try {
+  const path=join(directory,'voice.OPUS');await writeFile(path,Buffer.from('OggS-test'));
+  const result=await chooseAudio({showOpenDialog:async(parent,options)=>{
+   assert.equal(parent,'window');assert.equal(options.defaultPath,'Desktop');assert.deepEqual(options.properties,['openFile']);assert.ok(options.filters[0].extensions.includes('opus'));
+   return {canceled:false,filePaths:[path]};
+  }},'window','Desktop');
+  assert.equal(result.file.name,'voice.OPUS');assert.deepEqual(Buffer.from(result.file.data),Buffer.from('OggS-test'));assert.equal('path' in result.file,false);
+  assert.equal(await chooseAudio({showOpenDialog:async()=>({canceled:true,filePaths:[]})},'window','Desktop'),null);
+ } finally {assert.ok(!relative(tmpdir(),directory).startsWith('..') && basename(directory).startsWith('transcritor-picker-test-'));await rm(directory,{recursive:true,force:true});}
+});
+test('desktop: rejeita tamanho, vazio, extensao e falhas de leitura sem revelar caminhos',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'transcritor-picker-test-'));
+ try {
+  const large=join(directory,'large.wav');const handle=await open(large,'w');await handle.truncate(25*1024*1024+1);await handle.close();
+  const empty=join(directory,'empty.wav');await writeFile(empty,'');
+  for(const [path,pattern] of [[large,/25 MB/],[empty,/vazio/],[join(directory,'bad.exe'),/Formato/],[join(directory,'missing.wav'),/disponível/]]){
+   const result=await chooseAudio({showOpenDialog:async()=>({canceled:false,filePaths:[path]})},'window','Desktop');
+   assert.match(result.error,pattern);assert.equal(result.error.includes(directory),false);
+  }
+  await assert.rejects(readSelectedAudio(large),/SIZE/);
+ } finally {assert.ok(!relative(tmpdir(),directory).startsWith('..') && basename(directory).startsWith('transcritor-picker-test-'));await rm(directory,{recursive:true,force:true});}
+});
